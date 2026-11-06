@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lumen</title>
+<link rel="icon" href="icon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="booting">
+<div class="aura" id="aura" aria-hidden="true"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
+<div class="wrap">
+  <header>
+    <h1>Lumen</h1>
+    <div class="spacer"></div>
+    <div class="pill" id="ffpill"><i class="dot" id="ffdot"></i><span id="fftext">ffmpeg</span></div>
+    <button class="icon-btn" id="themeBtn" title="Cambiar tema"></button>
+    <button class="icon-btn" id="settingsBtn" title="Ajustes"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+  </header>
+
+  <div class="clip-banner hidden" id="clipBanner">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
+    <span id="clipText"></span>
+    <button class="btn small primary" id="clipUse">Usar</button>
+    <button class="icon-btn" id="clipClose" title="Ignorar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+  </div>
+
+  <section class="hero" id="hero">
+    <h2>Descarga lo que quieras.</h2>
+    <p>Videos y música de más de 1.000 sitios, directo a tu PC. Funciona con yt-dlp.</p>
+  </section>
+
+  <section class="card url-card" id="urlCard">
+    <label class="url-field">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+      <input id="url" type="text" placeholder="Pega uno o varios enlaces…" autocomplete="off" spellcheck="false" autofocus>
+    </label>
+    <button class="btn ghost" id="paste">Pegar</button>
+    <button class="btn primary" id="analyze">Analizar</button>
+  </section>
+
+  <section class="welcome" id="welcome">
+    <p>Pega un enlace, arrástralo a la ventana o pulsa <kbd>Ctrl</kbd>+<kbd>V</kbd> en cualquier parte. Puedes pegar varios a la vez.</p>
+  </section>
+
+  <section class="card panel skeleton hidden" id="skeleton" aria-label="Analizando enlace">
+    <div class="panel-top">
+      <div class="media sk"><img id="skThumb" alt=""></div>
+      <div class="meta">
+        <h2 class="sk-title hidden" id="skTitle"></h2>
+        <p class="sub sk-sub hidden" id="skSub"></p>
+        <div class="sk line w85 sk-t"></div>
+        <div class="sk line w45 sk-t"></div>
+        <div class="sk pillsk w40"></div>
+        <div class="sk-chips"><i class="sk"></i><i class="sk"></i><i class="sk"></i><i class="sk"></i><i class="sk"></i></div>
+        <div class="sk pillsk w100"></div>
+        <div class="sk pillsk w100 big"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card panel hidden" id="panel">
+    <button class="icon-btn panel-close" id="panelClose" title="Cerrar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    <div class="panel-top">
+      <div class="media-wrap">
+      <canvas class="ambient-glow" id="ambGlow" width="64" height="36" aria-hidden="true"></canvas>
+      <div class="media" id="media">
+        <img id="thumb" alt="">
+        <video id="clipVideo" class="hidden" playsinline disablepictureinpicture></video>
+        <div class="pv-wait hidden" id="pvWait"><i class="spin"></i></div>
+        <div class="pv-controls hidden" id="pvControls">
+          <button class="pv-btn" id="pvPlay" title="Pausa"></button>
+          <div class="pv-bar" id="pvBar"><i id="pvFill"></i></div>
+          <span id="pvTime">0:00</span>
+          <button class="pv-btn" id="pvMute" title="Silenciar"></button>
+        </div>
+        <span class="badge clip-badge hidden" id="clipBadge"></span>
+        <button class="icon-btn media-close hidden" id="clipVideoClose" title="Cerrar vista previa"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+        <div class="media-loading hidden" id="mediaLoading"><i class="spin"></i><span>Preparando vista previa…</span></div>
+        <div class="media-stack"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></div>
+        <span class="badge left hidden" id="plbadge"></span>
+        <span class="badge hidden" id="dur"></span>
+      </div>
+      </div>
+      <div class="meta">
+        <h2 id="title"></h2>
+        <p class="sub" id="sub"></p>
+
+        <div class="seg" id="mode">
+          <button data-v="video" class="on"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="14" height="14" rx="2"/><path d="m22 8-6 4 6 4V8z"/></svg>Video</button>
+          <button data-v="audio"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>Solo audio</button>
+        </div>
+
+        <div class="row" id="qualityRow"><label>Calidad</label><div class="chips" id="quality"></div></div>
+        <div class="row hidden" id="afmtRow"><label>Formato</label><div class="chips" id="afmt"></div></div>
+
+        <div class="toggles">
+          <label class="check"><input type="checkbox" id="meta"> Portada y metadatos</label>
+          <label class="check" id="subsWrap"><input type="checkbox" id="subs"> Subtítulos (es/en)</label>
+          <label class="check" id="clipWrap"><input type="checkbox" id="clipOn"> Solo un fragmento</label>
+        </div>
+
+        <div class="clip hidden" id="clipBody">
+          <div class="range" id="range">
+            <div class="scrub" id="scrub">
+              <div class="scrub-frame" id="scrubFrame"><img id="scrubImg" alt=""><i class="spin"></i></div>
+              <span id="scrubTime">0:00</span>
+            </div>
+            <div class="range-fill" id="rangeFill"></div>
+            <input type="range" id="rStart" min="0" step="1" aria-label="Inicio">
+            <input type="range" id="rEnd" min="0" step="1" aria-label="Fin">
+          </div>
+          <div class="clip-times">
+            <label>Inicio <input id="tStart" inputmode="numeric"></label>
+            <span id="clipLen"></span>
+            <label>Fin <input id="tEnd" inputmode="numeric"></label>
+          </div>
+          <div class="clip-actions">
+            <button type="button" class="btn small ghost" id="clipPreview">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+              <span>Ver el fragmento</span>
+            </button>
+            <span id="clipNote">Pasa el cursor por la barra para ver cada momento</span>
+          </div>
+        </div>
+
+        <div class="folder">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          <span id="folder"></span>
+          <button id="pick">Cambiar</button>
+        </div>
+
+        <button class="btn primary big" id="download">
+          <span class="dl-main">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m-5-5 5 5 5-5M5 20h14"/></svg>
+            <span id="dlText">Descargar</span>
+          </span>
+          <span class="dl-done">
+            <svg class="checkdraw" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+            Añadido a la cola
+          </span>
+        </button>
+      </div>
+    </div>
+
+    <div class="entries hidden" id="entriesBox">
+      <div class="entries-head">
+        <span id="selCount"></span>
+        <div class="spacer"></div>
+        <button class="link" id="selAll">Todos</button>
+        <button class="link" id="selNone">Ninguno</button>
+      </div>
+      <div class="entries-list" id="entries"></div>
+    </div>
+  </section>
+
+  <div class="list-head">
+    <h3>Descargas</h3><span class="count" id="count"></span>
+    <div class="spacer"></div>
+    <label class="search hidden" id="searchWrap">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="search" placeholder="Buscar en el historial" spellcheck="false">
+    </label>
+    <button class="link hidden" id="clear">Borrar historial</button>
+  </div>
+  <div class="jobs" id="jobs"></div>
+  <div class="empty" id="empty">
+    <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m-5-5 5 5 5-5M5 20h14"/></svg>
+    <span>Todavía no hay descargas</span>
+  </div>
+  <div class="empty hidden" id="noResults"><span>Nada coincide con tu búsqueda</span></div>
+</div>
+
+<div class="drop" id="drop"><div><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m-5-5 5 5 5-5M5 20h14"/></svg>Suelta el enlace aquí</div></div>
+
+<dialog id="settings">
+  <form method="dialog" class="settings">
+    <div class="settings-head">
+      <h2>Ajustes</h2>
+      <button type="button" class="icon-btn" id="settingsClose" title="Cerrar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+
+    <div class="field">
+      <label>Tema</label>
+      <div class="seg small" id="sTheme"><button type="button" data-v="system">Sistema</button><button type="button" data-v="light">Claro</button><button type="button" data-v="dark">Oscuro</button></div>
+    </div>
+    <div class="field">
+      <label>Descargas a la vez</label>
+      <div class="seg small" id="sParallel"><button type="button" data-v="1">1</button><button type="button" data-v="2">2</button><button type="button" data-v="3">3</button><button type="button" data-v="4">4</button><button type="button" data-v="5">5</button></div>
+    </div>
+    <div class="field">
+      <label for="sRate">Límite de velocidad</label>
+      <div class="inline"><input type="number" id="sRate" min="0" step="0.5"> <span>MB/s · 0 = sin límite</span></div>
+    </div>
+    <div class="field">
+      <label for="sTemplate">Nombre de los archivos</label>
+      <select id="sTemplate">
+        <option value="title_id">Título [id]</option>
+        <option value="title">Título</option>
+        <option value="channel_title">Canal - Título</option>
+        <option value="date_title">Fecha Título</option>
+        <option value="custom">Personalizado…</option>
+      </select>
+      <input id="sCustom" class="hidden" placeholder="%(uploader)s/%(title)s" spellcheck="false">
+      <small id="sTemplateHint"></small>
+    </div>
+    <div class="field">
+      <label for="sCookies">Usar sesión del navegador</label>
+      <select id="sCookies">
+        <option value="">No usar</option>
+        <option value="firefox">Firefox</option>
+        <option value="chrome">Chrome</option>
+        <option value="edge">Edge</option>
+        <option value="brave">Brave</option>
+        <option value="opera">Opera</option>
+        <option value="vivaldi">Vivaldi</option>
+      </select>
+      <small>Para videos privados, con restricción de edad o solo para miembros. Con Chrome, Edge o Brave, el navegador tiene que estar cerrado; Firefox funciona abierto.</small>
+    </div>
+    <div class="field toggles col">
+      <label class="check"><input type="checkbox" id="sNotify"> Notificar cuando termine una descarga</label>
+      <label class="check"><input type="checkbox" id="sSound"> Sonido al terminar</label>
+      <label class="check"><input type="checkbox" id="sClipboard"> Detectar enlaces copiados</label>
+      <label class="check"><input type="checkbox" id="sAmbient"> Modo ambiente: el fondo toma los colores del video</label>
+    </div>
+    <div class="field version">
+      <span id="sVersion"></span>
+      <button type="button" class="btn small ghost" id="update">Buscar actualización</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>

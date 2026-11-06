@@ -1,0 +1,14 @@
+# Herramientas incluidas en el .exe (muy pesadas; ver README)
+vendor/
+
+# Resultado de la compilación
+dist/
+build/
+*.spec
+
+# Python
+__pycache__/
+*.pyc
+
+# Configuración local del editor/asistente
+.claude/

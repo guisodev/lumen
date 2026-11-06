@@ -1,0 +1,20 @@
+LUMEN
+=====
+
+Para empezar, abre Lumen.exe.
+
+- Pega un enlace (o pulsa Ctrl+V en cualquier parte de la ventana),
+  elige la calidad y pulsa Descargar.
+- No muevas Lumen.exe fuera de esta carpeta: necesita la carpeta
+  _internal que tiene al lado.
+- La primera vez, Windows puede mostrar "Windows protegió su PC" porque
+  el programa no está firmado. Pulsa "Más información" y luego
+  "Ejecutar de todas formas".
+- Si YouTube pide confirmar que no eres un bot, abre Ajustes y activa
+  "Usar sesión del navegador".
+
+Ajustes e historial: %APPDATA%\Lumen
+
+Licencias: Lumen se publica bajo la licencia MIT. Incluye FFmpeg (GPLv3),
+deno (MIT), yt-dlp (Unlicense) y otras librerías; consulta
+THIRD-PARTY-NOTICES.md y la carpeta licenses.
