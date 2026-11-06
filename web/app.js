@@ -34,7 +34,7 @@ async function api(path, body) {
   });
   const data = await res.json();
   if (!res.ok) {
-    const err = new Error(data.error || 'Error desconocido');
+    const err = new Error(t(data.error || 'Error desconocido'));
     err.raw = data.raw;
     throw err;
   }
@@ -44,7 +44,7 @@ async function api(path, body) {
 let toastTimer;
 function toast(msg, err = false) {
   const t = $('#toast');
-  t.textContent = msg;
+  t.textContent = window.t ? window.t(msg) : msg;
   t.className = 'toast show' + (err ? ' err' : '');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (t.className = 'toast'), err ? 6500 : 2800);
@@ -173,19 +173,19 @@ function fmtBytes(b) {
   while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
   return b.toFixed(b < 10 && i > 1 ? 1 : 0) + ' ' + u[i];
 }
-const fmtViews = (n) => (n == null ? '' : new Intl.NumberFormat('es', { notation: 'compact' }).format(n) + ' vistas');
-const resLabel = (r) => (r === 'best' ? 'Máxima' : r >= 4320 ? '8K' : r >= 2160 ? '4K' : r >= 1440 ? '2K' : r + 'p');
+const fmtViews = (n) => (n == null ? '' : t('{n} vistas', { n: new Intl.NumberFormat(LOCALE(), { notation: 'compact' }).format(n) }));
+const resLabel = (r) => (r === 'best' ? t('Máxima') : r >= 4320 ? '8K' : r >= 2160 ? '4K' : r >= 1440 ? '2K' : r + 'p');
 function fmtWhen(ts) {
   if (!ts) return '';
   const d = new Date(ts * 1000), now = new Date();
   const mins = Math.round((now - d) / 60000);
-  if (mins < 1) return 'ahora';
-  if (mins < 60) return `hace ${mins} min`;
-  const time = d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
-  if (d.toDateString() === now.toDateString()) return 'hoy ' + time;
+  if (mins < 1) return t('ahora');
+  if (mins < 60) return t('hace {n} min', { n: mins });
+  const time = d.toLocaleTimeString(LOCALE(), { hour: '2-digit', minute: '2-digit' });
+  if (d.toDateString() === now.toDateString()) return t('hoy {t}', { t: time });
   const y = new Date(now); y.setDate(now.getDate() - 1);
-  if (d.toDateString() === y.toDateString()) return 'ayer ' + time;
-  return d.toLocaleDateString('es', { day: 'numeric', month: 'short' });
+  if (d.toDateString() === y.toDateString()) return t('ayer {t}', { t: time });
+  return d.toLocaleDateString(LOCALE(), { day: 'numeric', month: 'short' });
 }
 
 /* ---------- configuración y tema ---------- */
@@ -194,7 +194,7 @@ function applyTheme(theme) {
   if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
   else delete document.documentElement.dataset.theme;
   $('#themeBtn').innerHTML = theme === 'light' ? ICONS.sun : theme === 'dark' ? ICONS.moon : ICONS.auto;
-  $('#themeBtn').title = 'Tema: ' + ({ light: 'claro', dark: 'oscuro' }[theme] || 'según el sistema');
+  $('#themeBtn').title = t('Tema: {v}', { v: t({ light: 'claro', dark: 'oscuro' }[theme] || 'según el sistema') });
   setSeg('#sTheme', theme || 'system');
   syncTitlebar();
   paintAmbient(); // los tonos del modo ambiente dependen del tema
@@ -220,10 +220,12 @@ async function loadConfig() {
   const cfg = await api('/api/config');
   state.cfg = cfg;
   const s = (state.settings = cfg.settings);
+  setLang(cfg.lang);
+  translateDom();
   applyTheme(s.theme); // también ajusta la barra de título si pywebview ya está listo
   $('#ffdot').classList.toggle('bad', !cfg.ffmpeg);
-  $('#fftext').textContent = cfg.ffmpeg ? 'ffmpeg listo' : 'Falta ffmpeg';
-  $('#ffpill').title = cfg.ffmpeg ? 'ffmpeg une video y audio y convierte a MP3' : 'Sin ffmpeg no se pueden unir video y audio ni convertir a MP3';
+  $('#fftext').textContent = t(cfg.ffmpeg ? 'ffmpeg listo' : 'Falta ffmpeg');
+  $('#ffpill').title = t(cfg.ffmpeg ? 'ffmpeg une video y audio y convierte a MP3' : 'Sin ffmpeg no se pueden unir video y audio ni convertir a MP3');
   $('#folder').textContent = s.folder;
   $('#meta').checked = !!s.meta;
   $('#subs').checked = !!s.subs;
@@ -238,6 +240,7 @@ async function loadConfig() {
   $('#sSound').checked = !!s.sound;
   $('#sClipboard').checked = !!s.clipboard;
   $('#sAmbient').checked = s.ambient !== false;
+  $('#sLang').value = s.lang || 'auto';
   $('#sVersion').textContent = 'yt-dlp ' + cfg.version;
   $('#update').classList.toggle('hidden', !!cfg.frozen);
   templateHint();
@@ -269,7 +272,7 @@ async function analyze() {
   state.analyzing = true;
   const btn = $('#analyze');
   btn.disabled = true;
-  btn.innerHTML = '<i class="spin"></i>Analizando';
+  btn.innerHTML = '<i class="spin"></i>' + t('Analizando');
   $('#urlCard').classList.add('loading');
   showSkeleton(true);
   // Vistazo rápido (miniatura y título) mientras llega el análisis completo
@@ -301,7 +304,7 @@ async function analyze() {
     state.analyzing = false;
     $('#urlCard').classList.remove('loading');
     btn.disabled = false;
-    btn.textContent = 'Analizar';
+    btn.textContent = t('Analizar');
   }
 }
 
@@ -361,7 +364,7 @@ async function closePanel() {
 function setHeader({ title, sub, thumbnail, duration, badge }) {
   $('#thumb').src = thumbnail || '';
   $('#thumb').style.visibility = thumbnail ? '' : 'hidden';
-  $('#title').textContent = title || 'Sin título';
+  $('#title').textContent = title || t('Sin título');
   $('#title').title = title || '';
   $('#sub').textContent = sub.filter(Boolean).join(' · ');
   $('#dur').textContent = fmtTime(duration);
@@ -375,7 +378,7 @@ function showVideo(info) {
   openPanel('video');
   const site = /^Youtube/.test(info.extractor || '') ? null : info.extractor;
   setHeader({ title: info.title, thumbnail: info.thumbnail, duration: info.duration,
-    sub: [info.uploader, site, info.is_live ? 'En directo' : fmtViews(info.views)] });
+    sub: [info.uploader, site, info.is_live ? t('En directo') : fmtViews(info.views)] });
   ambientFromThumb(info.thumbnail);
   renderQualities(info.qualities);
   renderAudioFormats(info);
@@ -396,8 +399,8 @@ function showPlaylist(info) {
   state.info = info; state.bulk = null;
   state.selected = new Set(info.entries.map((e) => e.index));
   openPanel('playlist');
-  setHeader({ title: info.title, thumbnail: info.thumbnail, duration: info.duration,
-    sub: [info.uploader, info.count + ' videos'], badge: 'Lista · ' + info.count });
+  setHeader({ title: t(info.title), thumbnail: info.thumbnail, duration: info.duration,
+    sub: [info.uploader, t('{n} videos', { n: info.count })], badge: t('Lista · {n}', { n: info.count }) });
   ambientFromThumb(info.thumbnail);
   renderQualities([]);
   renderAudioFormats(null);
@@ -424,7 +427,7 @@ function showBulk(urls) {
   openPanel('bulk');
   amb.thumb = null;
   resetAmbient();
-  setHeader({ title: `${urls.length} enlaces`, thumbnail: null, sub: ['Se descargarán con las mismas opciones'] });
+  setHeader({ title: t('{n} enlaces', { n: urls.length }), thumbnail: null, sub: [t('Se descargarán con las mismas opciones')] });
   renderQualities([]);
   renderAudioFormats(null);
   $('#clipWrap').classList.add('hidden');
@@ -440,9 +443,9 @@ function renderBulkList() {
   const urls = state.bulk;
   $('#entries').innerHTML = urls.map((u, i) => `
     <div class="entry"><span class="n">${i + 1}</span><span class="t" title="${esc(u)}">${esc(u)}</span>
-      <button class="icon-btn" data-rm="${i}" title="Quitar">${ICONS.stop}</button></div>`).join('');
-  $('#selCount').textContent = `${urls.length} enlaces`;
-  setHeader({ title: `${urls.length} enlaces`, thumbnail: null, sub: ['Se descargarán con las mismas opciones'] });
+      <button class="icon-btn" data-rm="${i}" title="${t('Quitar')}">${ICONS.stop}</button></div>`).join('');
+  $('#selCount').textContent = t('{n} enlaces', { n: urls.length });
+  setHeader({ title: t('{n} enlaces', { n: urls.length }), thumbnail: null, sub: [t('Se descargarán con las mismas opciones')] });
   updateDownloadLabel();
 }
 
@@ -452,15 +455,15 @@ function updateSelection() {
     el.classList.toggle('off', !on);
     $('input', el).checked = on;
   });
-  $('#selCount').textContent = `${state.selected.size} de ${state.info.count} seleccionados`;
+  $('#selCount').textContent = t('{a} de {b} seleccionados', { a: state.selected.size, b: state.info.count });
   updateDownloadLabel();
 }
 
 function updateDownloadLabel() {
-  let text = 'Descargar', n = 1;
-  if (state.bulk) { n = state.bulk.length; text = `Descargar ${n} enlaces`; }
-  else if (state.info?.type === 'playlist') { n = state.selected.size; text = `Descargar ${n} ${n === 1 ? 'video' : 'videos'}`; }
-  else if ($('#clipOn').checked) text = 'Descargar fragmento';
+  let text = t('Descargar'), n = 1;
+  if (state.bulk) { n = state.bulk.length; text = t('Descargar {n} enlaces', { n }); }
+  else if (state.info?.type === 'playlist') { n = state.selected.size; text = t(n === 1 ? 'Descargar {n} video' : 'Descargar {n} videos', { n }); }
+  else if ($('#clipOn').checked) text = t('Descargar fragmento');
   $('#dlText').textContent = text;
   $('#download').disabled = n === 0;
 }
@@ -526,7 +529,7 @@ function setClip(a, b) {
   $$('#tStart, #tEnd').forEach((el) => el.classList.remove('bad'));
   $('#rangeFill').style.left = (a / max) * 100 + '%';
   $('#rangeFill').style.width = ((b - a) / max) * 100 + '%';
-  $('#clipLen').textContent = 'Duración ' + fmtTime(b - a);
+  $('#clipLen').textContent = t('Duración {d}', { d: fmtTime(b - a) });
   markPreviewStale();
 }
 
@@ -689,7 +692,7 @@ const PV_ICONS = {
   vol: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4z" fill="currentColor"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></svg>',
   muted: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4z" fill="currentColor"/><path d="m16 9 6 6M22 9l-6 6"/></svg>',
 };
-const NOTE_IDLE = 'Pasa el cursor por la barra para ver cada momento';
+const NOTE_IDLE = () => t('Pasa el cursor por la barra para ver cada momento');
 const pv = { key: null, mode: null, live: false, generated: null, audio: null, raf: 0, lastStart: null, seekTimer: null, muted: false };
 const pvVideo = $('#clipVideo');
 
@@ -731,12 +734,12 @@ function updateBadge() {
 function setWaiting(on) { $('#pvWait').classList.toggle('hidden', !on); }
 function updatePlayBtn() {
   $('#pvPlay').innerHTML = pvVideo.paused ? PV_ICONS.play : PV_ICONS.pause;
-  $('#pvPlay').title = pvVideo.paused ? 'Reproducir' : 'Pausa';
+  $('#pvPlay').title = t(pvVideo.paused ? 'Reproducir' : 'Pausa');
 }
 function applyMute() {
   if (pv.audio) pv.audio.muted = pv.muted; else pvVideo.muted = pv.muted;
   $('#pvMute').innerHTML = pv.muted ? PV_ICONS.muted : PV_ICONS.vol;
-  $('#pvMute').title = pv.muted ? 'Activar sonido' : 'Silenciar';
+  $('#pvMute').title = t(pv.muted ? 'Activar sonido' : 'Silenciar');
 }
 function playPreview() {
   pvVideo.play().catch(() => {});
@@ -765,8 +768,8 @@ function startLive(key, mode) {
     pv.audio.preload = 'auto';
     pv.audio.addEventListener('error', () => toast('No se pudo cargar el audio de la vista previa', true), { once: true });
   }
-  $('#clipNote').textContent = 'Reproduciendo · mueve los tiradores y se actualiza al momento';
-  $('#clipPreview span').textContent = 'Desde el inicio';
+  $('#clipNote').textContent = t('Reproduciendo · mueve los tiradores y se actualiza al momento');
+  $('#clipPreview span').textContent = t('Desde el inicio');
   showPreviewUI();
   setWaiting(true);
   playPreview();
@@ -785,7 +788,7 @@ async function generatedPreview(key) {
     pvVideo.loop = true;
     pvVideo.muted = false;
     pvVideo.src = r.url;
-    $('#clipNote').textContent = r.trimmed ? 'Este sitio no permite verlo en directo: se muestran los primeros 30 s' : 'Esto es lo que vas a descargar';
+    $('#clipNote').textContent = t(r.trimmed ? 'Este sitio no permite verlo en directo: se muestran los primeros 30 s' : 'Esto es lo que vas a descargar');
     showPreviewUI();
     playPreview();
   } catch (e) {
@@ -825,8 +828,8 @@ function markPreviewStale() {
     }
   } else if (pv.generated) {
     const stale = pv.generated.for !== `${getClip()[0]}-${getClip()[1]}`;
-    $('#clipPreview span').textContent = stale ? 'Actualizar vista previa' : 'Ver el fragmento';
-    if (stale) $('#clipNote').textContent = 'Cambiaste el fragmento';
+    $('#clipPreview span').textContent = t(stale ? 'Actualizar vista previa' : 'Ver el fragmento');
+    if (stale) $('#clipNote').textContent = t('Cambiaste el fragmento');
   }
 }
 
@@ -841,8 +844,8 @@ function stopPreview() {
   pvVideo.classList.add('hidden');
   $('#media').classList.remove('playing');
   $$('#clipVideoClose, #clipBadge, #pvControls, #pvWait').forEach((el) => el.classList.add('hidden'));
-  $('#clipPreview span').textContent = 'Ver el fragmento';
-  $('#clipNote').textContent = NOTE_IDLE;
+  $('#clipPreview span').textContent = t('Ver el fragmento');
+  $('#clipNote').textContent = NOTE_IDLE();
   if (amb.thumb?.complete) applyAmbient(amb.thumb); // vuelven los colores de la miniatura
 }
 
@@ -982,7 +985,7 @@ async function download() {
   try {
     if (state.bulk) {
       for (const url of state.bulk) await api('/api/download', { ...opts, url, type: 'video' });
-      toast(`${state.bulk.length} descargas añadidas`);
+      toast(t('{n} descargas añadidas', { n: state.bulk.length }));
       celebrate();
       wait(900).then(closePanel);
     } else if (state.info?.type === 'playlist') {
@@ -1062,7 +1065,7 @@ $('#selNone').addEventListener('click', () => { state.selected.clear(); updateSe
 
 $('#pick').addEventListener('click', async () => {
   const btn = $('#pick');
-  btn.disabled = true; btn.textContent = 'Eligiendo…';
+  btn.disabled = true; btn.textContent = t('Eligiendo…');
   try {
     const { folder } = await api('/api/pick-folder', { folder: $('#folder').textContent });
     if (folder) {
@@ -1073,7 +1076,7 @@ $('#pick').addEventListener('click', async () => {
       }
     }
   } catch (e) { toast(e.message, true); }
-  btn.disabled = false; btn.textContent = 'Cambiar';
+  btn.disabled = false; btn.textContent = t('Cambiar');
 });
 
 /* ---------- pegar, arrastrar y portapapeles ---------- */
@@ -1128,7 +1131,7 @@ async function checkClipboard() {
     state.clipKey = key;
     if (urls.length === 1 && (urls[0] === state.lastAnalyzed || urls[0] === $('#url').value.trim())) return;
     state.clipUrls = urls;
-    $('#clipText').textContent = urls.length > 1 ? `Copiaste ${urls.length} enlaces` : `Enlace copiado: ${urls[0]}`;
+    $('#clipText').textContent = urls.length > 1 ? t('Copiaste {n} enlaces', { n: urls.length }) : t('Enlace copiado: {u}', { u: urls[0] });
     $('#clipBanner').classList.remove('hidden');
     // lo analizamos ya en segundo plano: al pulsar "Usar" estará listo
     if (urls.length === 1) api('/api/prefetch', { url: urls[0] }).catch(() => {});
@@ -1149,13 +1152,13 @@ let pollTimer;
 
 function statusText(j) {
   switch (j.status) {
-    case 'queued': return 'En cola';
-    case 'starting': return 'Iniciando…';
-    case 'downloading': return `${j.stage} · ${Math.floor(j.progress)}%`;
-    case 'processing': return j.stage + '…';
-    case 'done': return 'Listo' + (j.finished ? ' · ' + fmtWhen(j.finished) : '');
-    case 'cancelled': return 'Cancelado';
-    case 'error': return j.error || 'La descarga falló';
+    case 'queued': return t('En cola');
+    case 'starting': return t('Iniciando…');
+    case 'downloading': return `${t(j.stage)} · ${Math.floor(j.progress)}%`;
+    case 'processing': return t(j.stage) + '…';
+    case 'done': return t('Listo') + (j.finished ? ' · ' + fmtWhen(j.finished) : '');
+    case 'cancelled': return t('Cancelado');
+    case 'error': return t(j.error || 'La descarga falló');
   }
   return j.status;
 }
@@ -1164,7 +1167,7 @@ function numsText(j) {
     const parts = [];
     if (j.total) parts.push(`${fmtBytes(j.downloaded)} / ${fmtBytes(j.total)}`);
     if (j.speed) parts.push(fmtBytes(j.speed) + '/s');
-    if (j.eta != null) parts.push('quedan ' + fmtTime(j.eta));
+    if (j.eta != null) parts.push(t('quedan {t}', { t: fmtTime(j.eta) }));
     return parts.join(' · ');
   }
   if (j.status === 'done' && j.total) return fmtBytes(j.total);
@@ -1172,17 +1175,17 @@ function numsText(j) {
 }
 function subText(j) {
   const bits = [];
-  if (j.kind === 'playlist') bits.push(`Lista · ${j.count} videos` + (j.item && ACTIVE.includes(j.status) ? ` · video ${j.item}${j.item_title ? ': ' + esc(j.item_title) : ''}` : ''));
-  else if (j.item && ACTIVE.includes(j.status)) bits.push('Video ' + j.item);
+  if (j.kind === 'playlist') bits.push(t('Lista · {n} videos', { n: j.count }) + (j.item && ACTIVE.includes(j.status) ? ' · ' + t('video {i}', { i: j.item }) + (j.item_title ? ': ' + esc(j.item_title) : '') : ''));
+  else if (j.item && ACTIVE.includes(j.status)) bits.push(t('Video {i}', { i: j.item }));
   if (j.section) bits.push(`<span class="cut">✂ ${fmtTime(j.section[0])}–${fmtTime(j.section[1])}</span>`);
   return bits.join(' · ');
 }
 
 function jobActions(j) {
-  if (ACTIVE.includes(j.status)) return `<button class="icon-btn" data-a="cancel" title="Cancelar">${ICONS.stop}</button>`;
-  return (j.status !== 'done' ? `<button class="icon-btn" data-a="retry" title="Reintentar">${ICONS.retry}</button>` : '')
-    + `<button class="icon-btn" data-a="reveal" title="Mostrar en la carpeta">${ICONS.folder}</button>`
-    + `<button class="icon-btn" data-a="remove" title="Quitar del historial">${ICONS.trash}</button>`;
+  if (ACTIVE.includes(j.status)) return `<button class="icon-btn" data-a="cancel" title="${t('Cancelar')}">${ICONS.stop}</button>`;
+  return (j.status !== 'done' ? `<button class="icon-btn" data-a="retry" title="${t('Reintentar')}">${ICONS.retry}</button>` : '')
+    + `<button class="icon-btn" data-a="reveal" title="${t('Mostrar en la carpeta')}">${ICONS.folder}</button>`
+    + `<button class="icon-btn" data-a="remove" title="${t('Quitar del historial')}">${ICONS.trash}</button>`;
 }
 
 async function jobAction(j, a) {
@@ -1260,10 +1263,11 @@ function renderJobs(all) {
         ], { duration: 1000, easing: EASE_OUT });
       }
     }
-    $('.thumb', el).title = playable ? (j.kind === 'playlist' ? 'Abrir carpeta' : 'Reproducir') : '';
+    $('.thumb', el).title = playable ? t(j.kind === 'playlist' ? 'Abrir carpeta' : 'Reproducir') : '';
     if (j.thumbnail && !$('.thumb img', el)) $('.thumb', el).insertAdjacentHTML('afterbegin', `<img src="${esc(j.thumbnail)}" alt="">`);
-    const t = $('.jtitle', el);
-    if (t.textContent !== j.title) { t.textContent = j.title; t.title = j.title; }
+    const titleEl = $('.jtitle', el);
+    const jt = t(j.title);
+    if (titleEl.textContent !== jt) { titleEl.textContent = jt; titleEl.title = jt; }
     const sub = subText(j);
     if ($('.jsub', el).innerHTML !== sub) $('.jsub', el).innerHTML = sub;
     $('.jsub', el).classList.toggle('hidden', !sub);
@@ -1291,7 +1295,7 @@ function renderJobs(all) {
   $('#noResults').classList.toggle('hidden', !(all.length && !list.length));
   $('#clear').classList.toggle('hidden', all.length === active);
   $('#searchWrap').classList.toggle('hidden', all.length < 4 && !q);
-  const count = active ? `${active} en curso` : all.length ? String(all.length) : '';
+  const count = active ? t('{n} en curso', { n: active }) : all.length ? String(all.length) : '';
   if ($('#count').textContent !== count) { $('#count').textContent = count; bump($('#count'), 1.25); }
   $('#aura').classList.toggle('busy', active > 0);
   $('header h1').classList.toggle('busy', active > 0); // el nombre brilla mientras descarga
@@ -1322,7 +1326,7 @@ async function poll() {
 
 $('#search').addEventListener('input', (e) => { state.search = e.target.value; poll(); });
 $('#clear').addEventListener('click', async () => {
-  if (!confirm('¿Borrar todo el historial? Los archivos descargados no se borran.')) return;
+  if (!confirm(t('¿Borrar todo el historial? Los archivos descargados no se borran.'))) return;
   const done = [...nodes.values()].filter((el) => !ACTIVE.includes(el._job.status) && el.isConnected);
   await Promise.all([
     api('/api/clear', {}),
@@ -1357,16 +1361,16 @@ document.addEventListener('pointerdown', unlockAudio, { once: true });
 
 /* ---------- ajustes ---------- */
 
-const TEMPLATE_EXAMPLES = {
-  title_id: 'Mi video [dQw4w9WgXcQ].mp4', title: 'Mi video.mp4',
-  channel_title: 'Canal - Mi video.mp4', date_title: '2026-11-03 Mi video.mp4',
-};
+const TEMPLATE_EXAMPLES = () => ({
+  title_id: `${t('Mi video')} [dQw4w9WgXcQ].mp4`, title: `${t('Mi video')}.mp4`,
+  channel_title: `${t('Canal')} - ${t('Mi video')}.mp4`, date_title: `2026-11-03 ${t('Mi video')}.mp4`,
+});
 function templateHint() {
   const v = $('#sTemplate').value;
   $('#sCustom').classList.toggle('hidden', v !== 'custom');
   $('#sTemplateHint').innerHTML = v === 'custom'
-    ? 'Usa campos de yt-dlp como <code>%(title)s</code>, <code>%(uploader)s</code>, <code>%(upload_date)s</code>. Con <code>/</code> creas subcarpetas.'
-    : 'Ejemplo: ' + esc(TEMPLATE_EXAMPLES[v]);
+    ? t('Usa campos de yt-dlp como {a}, {b}, {c}. Con {d} creas subcarpetas.', { a: '<code>%(title)s</code>', b: '<code>%(uploader)s</code>', c: '<code>%(upload_date)s</code>', d: '<code>/</code>' })
+    : t('Ejemplo: {x}', { x: esc(TEMPLATE_EXAMPLES()[v]) });
 }
 
 function openSettings() {
@@ -1417,6 +1421,10 @@ $('#sParallel').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return;
   setSeg('#sParallel', b.dataset.v); saveSetting({ parallel: +b.dataset.v });
 });
+$('#sLang').addEventListener('change', async (e) => {
+  await saveSetting({ lang: e.target.value });
+  location.reload(); // los textos fijos se traducen al cargar
+});
 $('#sRate').addEventListener('change', (e) => saveSetting({ ratelimit: Math.max(0, +e.target.value || 0) }));
 $('#sTemplate').addEventListener('change', (e) => { templateHint(); saveSetting({ template: e.target.value }); });
 $('#sCustom').addEventListener('change', (e) => saveSetting({ custom_template: e.target.value }));
@@ -1429,14 +1437,14 @@ $('#subs').addEventListener('change', (e) => saveSetting({ subs: e.target.checke
 
 $('#update').addEventListener('click', async () => {
   const b = $('#update');
-  b.disabled = true; b.textContent = 'Actualizando…';
+  b.disabled = true; b.textContent = t('Actualizando…');
   try {
     const r = await api('/api/update', {});
     if (!r.ok) toast(r.error || 'No se pudo actualizar yt-dlp', true);
-    else if (r.restart) toast(`Actualizado a ${r.version}. Cierra y vuelve a abrir el programa para usarlo.`);
+    else if (r.restart) toast(t('Actualizado a {v}. Cierra y vuelve a abrir el programa para usarlo.', { v: r.version }));
     else toast('yt-dlp ya está en la última versión');
   } catch (e) { toast(e.message, true); }
-  b.disabled = false; b.textContent = 'Buscar actualización';
+  b.disabled = false; b.textContent = t('Buscar actualización');
 });
 
 /* ---------- inicio ---------- */
@@ -1460,12 +1468,12 @@ window.addEventListener('pywebviewready', signalReady);
 // Arranque: todo se prepara sin verse (ajustes, historial y fuentes) y
 // después entra en una sola secuencia, sin saltos ni textos que cambian.
 async function boot() {
-  splitHeroWords();
   const [, list] = await Promise.all([
     loadConfig().catch((e) => toast(e.message, true)),
     api('/api/jobs').catch(() => []),
     document.fonts?.ready,
   ]);
+  splitHeroWords(); // después de traducir: parte el título ya en su idioma
   notifyTransitions(list);
   // La ventana de escritorio nace oculta y, mientras lo está, el navegador
   // congela animaciones y temporizadores: primero pedimos mostrarla (todavía

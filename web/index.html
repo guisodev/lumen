@@ -185,6 +185,14 @@
       <div class="seg small" id="sTheme"><button type="button" data-v="system">Sistema</button><button type="button" data-v="light">Claro</button><button type="button" data-v="dark">Oscuro</button></div>
     </div>
     <div class="field">
+      <label for="sLang">Idioma</label>
+      <select id="sLang">
+        <option value="auto">Automático (Windows)</option>
+        <option value="es">Español</option>
+        <option value="en">English</option>
+      </select>
+    </div>
+    <div class="field">
       <label>Descargas a la vez</label>
       <div class="seg small" id="sParallel"><button type="button" data-v="1">1</button><button type="button" data-v="2">2</button><button type="button" data-v="3">3</button><button type="button" data-v="4">4</button><button type="button" data-v="5">5</button></div>
     </div>
@@ -231,6 +239,7 @@
 </dialog>
 
 <div class="toast" id="toast"></div>
+<script src="i18n.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

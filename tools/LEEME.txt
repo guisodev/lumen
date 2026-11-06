@@ -1,6 +1,8 @@
 LUMEN
 =====
 
+[English below]
+
 Para empezar, abre Lumen.exe.
 
 - Pega un enlace (o pulsa Ctrl+V en cualquier parte de la ventana),
@@ -18,3 +20,25 @@ Ajustes e historial: %APPDATA%\Lumen
 Licencias: Lumen se publica bajo la licencia MIT. Incluye FFmpeg (GPLv3),
 deno (MIT), yt-dlp (Unlicense) y otras librerías; consulta
 THIRD-PARTY-NOTICES.md y la carpeta licenses.
+
+------------------------------------------------------------------------
+
+LUMEN (English)
+
+To get started, open Lumen.exe.
+
+- Paste a link (or press Ctrl+V anywhere in the window), pick a quality
+  and click Download.
+- Don't move Lumen.exe out of this folder: it needs the _internal folder
+  next to it.
+- On first run, Windows may show "Windows protected your PC" because the
+  app isn't signed. Click "More info", then "Run anyway".
+- If YouTube asks you to confirm you're not a bot, open Settings and turn
+  on "Use browser session".
+- The app follows your Windows language; change it in Settings > Language.
+
+Settings and history: %APPDATA%\Lumen
+
+Licenses: Lumen is released under the MIT license. It bundles FFmpeg
+(GPLv3), deno (MIT), yt-dlp (Unlicense) and other libraries; see
+THIRD-PARTY-NOTICES.md and the licenses folder.

@@ -147,6 +147,7 @@ DEFAULTS = {
     "audio_format": "mp3", "meta": True, "subs": False,
     "parallel": 3, "ratelimit": 0, "template": "title_id", "custom_template": "",
     "cookies": "", "notify": True, "sound": True, "clipboard": True, "theme": "system", "ambient": True,
+    "lang": "auto",
 }
 settings_lock = threading.Lock()
 
@@ -174,6 +175,39 @@ def save_settings(data):
     with settings_lock:
         settings.update({k: v for k, v in data.items() if k in DEFAULTS})
         write_json(SETTINGS_FILE, settings)
+
+
+# ---------- idioma ----------
+# La app está escrita en español; web/i18n.js tiene las traducciones al inglés
+# con el texto en español como clave. El servidor las lee de ahí para lo poco
+# que muestra él mismo (las notificaciones de Windows).
+
+def ui_lang():
+    """'es' o 'en': el elegido en Ajustes o, en automático, el idioma de Windows."""
+    if settings.get("lang") in ("es", "en"):
+        return settings["lang"]
+    try:
+        primary = ctypes.windll.kernel32.GetUserDefaultUILanguage() & 0x3FF
+        return "es" if primary == 0x0A else "en"  # 0x0A = LANG_SPANISH
+    except Exception:
+        import locale
+        return "es" if (locale.getlocale()[0] or "").lower().startswith("es") else "en"
+
+
+_EN = None
+
+
+def tr(es):
+    global _EN
+    if ui_lang() != "en":
+        return es
+    if _EN is None:
+        try:
+            text = (WEB / "i18n.js").read_text(encoding="utf-8")
+            _EN = dict(re.findall(r"^\s*'(.+?)': '(.*)',\s*$", text, re.M))
+        except OSError:
+            _EN = {}
+    return _EN.get(es, es)
 
 
 def base_opts():
@@ -803,8 +837,9 @@ def run_job(job):
         save_history()
         if job["status"] in ("done", "error") and settings["notify"] and not ui["focused"]:
             ok = job["status"] == "done"
-            notify("Descarga terminada" if ok else "La descarga falló",
-                   job["title"] if ok else f'{job["title"]}\n{job.get("error", "")}')
+            title = tr(job["title"])
+            notify(tr("Descarga terminada") if ok else tr("La descarga falló"),
+                   title if ok else f'{title}\n{tr(job.get("error", ""))}')
 
 
 def start_job(data):
@@ -1172,7 +1207,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/config":
             return self.send_json({"settings": settings, "version": ytdlp_version(),
                                    "ffmpeg": bool(shutil.which("ffmpeg")), "window": WINDOW is not None,
-                                   "frozen": getattr(sys, "frozen", False)})
+                                   "frozen": getattr(sys, "frozen", False), "lang": ui_lang()})
         if path == "/api/jobs":
             ui["last_seen"] = time.time()
             with jobs_lock:
@@ -1186,9 +1221,10 @@ class Handler(BaseHTTPRequestHandler):
         if file.is_file() and WEB.resolve() in file.parents:
             ctype = STATIC_TYPES.get(file.suffix, "application/octet-stream")
             body = file.read_bytes()
-            if file.name == "index.html" and settings.get("theme") in ("light", "dark"):
-                # el tema elegido ya en el primer fotograma, sin esperar al JavaScript
-                body = body.replace(b'<html lang="es">', f'<html lang="es" data-theme="{settings["theme"]}">'.encode(), 1)
+            if file.name == "index.html":
+                # idioma y tema ya en el primer fotograma, sin esperar al JavaScript
+                theme = f' data-theme="{settings["theme"]}"' if settings.get("theme") in ("light", "dark") else ""
+                body = body.replace(b'<html lang="es">', f'<html lang="{ui_lang()}"{theme}>'.encode(), 1)
             return self.send_body(body, ctype + ("; charset=utf-8" if ctype.startswith("text") else ""))
         self.send_json({"error": "No encontrado"}, 404)
 
