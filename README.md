@@ -28,9 +28,14 @@ and in up-to-date Windows 10).
 
 ## Features
 
-- **Video or audio only**, as MP4, MP3, M4A, OPUS, **FLAC or WAV**, with the
-  **estimated size** of each quality (144p to 4K) before you download. MP3
-  bitrate is configurable.
+- **Video as MP4, MKV or WebM** (MKV keeps the best codec, such as AV1), or
+  **audio only** as MP3, M4A, OPUS, FLAC or WAV, with the **estimated size** of
+  each quality (144p to 4K) before you download. MP3 bitrate is configurable.
+- **Downloads start instantly**: Lumen reuses the analysis it already did
+  instead of asking the site again.
+- **Subtitles in the language you choose**, from those the video has.
+- **Scheduled downloads**: pick a time (for example, overnight) and the download
+  waits in the list, even if you close Lumen.
 - **Search without leaving the app**: type words instead of a link and pick a
   result.
 - **Split by chapters**: one file per chapter, in its own folder.
@@ -43,8 +48,9 @@ and in up-to-date Windows 10).
 - **Download from the browser**: a bookmark sends the page you’re watching to
   Lumen.
 - **Keeps working in the system tray** if you close the window while downloading.
-- **Always up to date**: yt-dlp updates itself in the background, and Lumen tells
-  you when a new version is out.
+- **Always up to date**: yt-dlp updates itself in the background, and the
+  installed version of Lumen updates itself with one click (the download is
+  checked against the SHA-256 published on GitHub).
 - **Ambient mode**: the black background lights up with the video’s colors.
 - **Copied links are detected** and analyzed ahead of time, so they’re usually
   ready instantly.
@@ -98,6 +104,11 @@ python tools/build.py
 The result is in `dist/Lumen/`, zipped as `dist/Lumen.zip`, and, if
 [Inno Setup 6](https://jrsoftware.org/isinfo.php) is installed, as the installer
 `dist/Lumen-Setup.exe`.
+
+To sign `Lumen.exe`, the installer and the uninstaller, set
+`LUMEN_SIGN_THUMBPRINT` (a code signing certificate in your user store) or
+`LUMEN_SIGN_PFX` and `LUMEN_SIGN_PASSWORD` before building; see
+[`tools/sign.ps1`](tools/sign.ps1).
 
 Translations live in [`web/i18n.js`](web/i18n.js): the Spanish text is the key
 and each language has its own dictionary. `python tools/check_i18n.py` lists

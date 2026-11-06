@@ -565,3 +565,24 @@ dialog.closing::backdrop { animation: fadeout .19s ease-in forwards; }
 .jact .icon-btn:disabled { opacity: .25; }
 .bookmarklet { align-items: stretch; }
 .bookmarklet code { flex: 1; min-width: 0; padding: 7px 10px; border-radius: var(--radius-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+
+/* ---------- 1.3: formato de video, subtítulos, programar ---------- */
+.subs-wrap { display: inline-flex; align-items: center; gap: 10px; }
+.subs-wrap.off { opacity: .35; pointer-events: none; }
+.subs-wrap.none { display: none; }
+.mini-select { font-size: 12.5px; height: 28px; padding: 0 10px; border-radius: var(--pill); border: 1px solid var(--border);
+  background: var(--surface-2); outline: 0; max-width: 220px; cursor: pointer; }
+.mini-select:focus { border-color: var(--accent-2); }
+.mini-select option { background: var(--surface-solid); }
+
+.dl-row { display: flex; gap: 8px; }
+.dl-row #download { flex: 1; min-width: 0; }
+.schedule-btn { width: 52px !important; flex: none; padding: 0; }
+.schedule-pop { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; margin-top: 10px; padding: 12px 14px;
+  border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); font-size: 13px; }
+.schedule-pop label { color: var(--muted); }
+.schedule-pop input[type=time] { height: 34px; padding: 0 10px; border-radius: var(--pill); border: 1px solid var(--border);
+  background: var(--surface); outline: 0; font-variant-numeric: tabular-nums; }
+.schedule-pop input[type=time]:focus { border-color: var(--accent-2); }
+.schedule-pop #schedWhen { flex: 1; min-width: 120px; color: var(--muted); }
+.job.scheduled .bar { opacity: .35; }

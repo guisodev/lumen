@@ -2,7 +2,8 @@
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
-const ACTIVE = ['queued', 'starting', 'downloading', 'processing', 'paused']; // aún no terminadas
+const ACTIVE = ['queued', 'starting', 'downloading', 'processing', 'paused', 'scheduled']; // aún no terminadas
+const RUNNING = ['starting', 'downloading', 'processing']; // descargando de verdad ahora mismo
 const URL_RE = /https?:\/\/[^\s<>"']+/gi;
 
 const state = {
@@ -18,6 +19,7 @@ const state = {
 const ICONS = {
   pause: '<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>',
   resume: '<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
+  now: '<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M5 5v14l8-7zM13 5v14l8-7z"/></svg>',
   up: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 15 6-6 6 6"/></svg>',
   down: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
   folder: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
@@ -233,6 +235,7 @@ async function loadConfig() {
   $('#folder').textContent = s.folder;
   $('#meta').checked = !!s.meta;
   $('#subs').checked = !!s.subs;
+  $('#schedTime').value = s.schedule_time || '02:00';
   setMode(s.mode || 'video');
 
   setSeg('#sParallel', String(s.parallel));
@@ -389,8 +392,10 @@ function showVideo(info) {
   setHeader({ title: info.title, thumbnail: info.thumbnail, duration: info.duration,
     sub: [info.uploader, site, info.is_live ? t('En directo') : fmtViews(info.views)] });
   ambientFromThumb(info.thumbnail);
-  renderQualities(info.qualities);
+  renderVideoFormats();
+  renderQualities(qualitiesFor(info));
   renderAudioFormats(info);
+  renderSubLangs(info.subtitles);
   $('#entriesBox').classList.add('hidden');
   const canClip = !!info.duration && !info.is_live;
   $('#clipWrap').classList.toggle('hidden', !canClip);
@@ -414,8 +419,10 @@ function showPlaylist(info) {
   setHeader({ title: t(info.title), thumbnail: info.thumbnail, duration: info.duration,
     sub: [info.uploader, t('{n} videos', { n: info.count })], badge: t('Lista · {n}', { n: info.count }) });
   ambientFromThumb(info.thumbnail);
+  renderVideoFormats();
   renderQualities([]);
   renderAudioFormats(null);
+  renderSubLangs(null);
   $('#clipWrap').classList.add('hidden');
   $('#clipBody').classList.add('hidden');
   $('#entries').innerHTML = info.entries.map((e) => `
@@ -440,8 +447,10 @@ function showBulk(urls) {
   amb.thumb = null;
   resetAmbient();
   setHeader({ title: t('{n} enlaces', { n: urls.length }), thumbnail: null, sub: [t('Se descargarán con las mismas opciones')] });
+  renderVideoFormats();
   renderQualities([]);
   renderAudioFormats(null);
+  renderSubLangs(null);
   $('#clipWrap').classList.add('hidden');
   $('#clipBody').classList.add('hidden');
   renderBulkList();
@@ -493,6 +502,7 @@ const currentMode = () => $('#mode button.on').dataset.v;
 function setMode(m) {
   setSeg('#mode', m);
   $('#qualityRow').classList.toggle('hidden', m !== 'video');
+  $('#vfmtRow').classList.toggle('hidden', m !== 'video');
   $('#afmtRow').classList.toggle('hidden', m !== 'audio');
   $('#subsWrap').classList.toggle('off', m !== 'video');
 }
@@ -513,6 +523,60 @@ function renderQualities(qualities) {
   }).join('');
   const saved = String(state.settings.quality || 'best');
   selectChip('#quality', opts.some((q) => String(q.res) === saved) ? saved : 'best');
+}
+
+// MP4 se abre en cualquier sitio; MKV guarda la mejor calidad (AV1/VP9); WebM es VP9 + Opus
+const VIDEO_FORMATS = [['mp4', 'Compatible'], ['mkv', 'Máxima calidad'], ['webm', 'VP9']];
+
+function renderVideoFormats() {
+  $('#vfmt').innerHTML = VIDEO_FORMATS.map(([f, note]) =>
+    `<button class="chip" data-v="${f}"><b>${f.toUpperCase()}</b><small>${t(note)}</small></button>`).join('');
+  selectChip('#vfmt', state.settings.video_format || 'mp4');
+}
+
+// Cada formato elige códecs distintos, así que el tamaño de cada calidad cambia
+const qualitiesFor = (info) => info?.qualities_by?.[chipValue('#vfmt') || 'mp4'] || info?.qualities || [];
+
+// "es-3pK74FgVxOs" (YouTube añade el id de la pista) → "es"; "pt-BR" y "zh-Hans" se quedan
+function langTag(code) {
+  const [lang, next] = code.split('-');
+  return next && /^([A-Za-z]{2}|\d{3}|[A-Z][a-z]{3})$/.test(next) ? `${lang}-${next}` : lang;
+}
+
+function langName(code) {
+  const tag = langTag(code);
+  try { return new Intl.DisplayNames([LOCALE()], { type: 'language' }).of(tag) || tag; } catch { return tag; }
+}
+
+function renderSubLangs(subs) {
+  const sel = $('#subLang');
+  state.subLangs = subs;
+  if (!subs) { // listas y varios enlaces: no sabemos qué idiomas tiene cada video
+    sel.classList.add('hidden');
+    $('#subsWrap').classList.remove('none');
+    return;
+  }
+  $('#subsWrap').classList.toggle('none', !subs.length); // el video no tiene subtítulos
+  if (!subs.length) return;
+  const labels = subs.map((s) => {
+    const name = langName(s.code);
+    return name.charAt(0).toUpperCase() + name.slice(1) + (s.auto ? ' · ' + t('automáticos') : '');
+  });
+  // en orden alfabético del idioma de la app; dos pistas del mismo idioma se numeran
+  const order = subs.map((_, i) => i).sort((a, b) => labels[a].localeCompare(labels[b], LOCALE()));
+  const seen = {};
+  sel.innerHTML = order.map((i) => {
+    seen[labels[i]] = (seen[labels[i]] || 0) + 1;
+    const label = labels[i] + (seen[labels[i]] > 1 ? ` (${seen[labels[i]]})` : '');
+    return `<option value="${i}">${esc(label)}</option>`;
+  }).join('');
+  // el idioma de la app; si no está, el original del video; si no, el primero
+  const pick = (pred) => subs.findIndex(pred);
+  let i = pick((s) => !s.auto && langTag(s.code).split('-')[0] === LOCALE());
+  if (i < 0) i = pick((s) => langTag(s.code).split('-')[0] === LOCALE());
+  if (i < 0) i = pick((s) => s.code.endsWith('-orig'));
+  sel.value = String(Math.max(0, i));
+  sel.classList.toggle('hidden', !$('#subs').checked);
 }
 
 function renderAudioFormats(info) {
@@ -990,12 +1054,37 @@ function currentOptions() {
     mode: currentMode(), quality: chipValue('#quality') || 'best', audio_format: chipValue('#afmt') || 'mp3',
     meta: $('#meta').checked, subs: $('#subs').checked, folder: $('#folder').textContent,
     chapters: !$('#chapWrap').classList.contains('hidden') && $('#chapOn').checked && !$('#clipOn').checked,
+    video_format: chipValue('#vfmt') || 'mp4', ...subChoice(),
   };
 }
 
-async function download() {
+function subChoice() {
+  const s = state.subLangs?.[+$('#subLang').value];
+  return s && $('#subs').checked ? { sub_lang: s.code, sub_auto: s.auto } : { sub_lang: '', sub_auto: false };
+}
+
+// Próxima vez que el reloj marque esa hora: hoy si aún no ha pasado, si no mañana
+function nextAt(hhmm) {
+  const [h, m] = (hhmm || '').split(':').map(Number);
+  if (!isFinite(h) || !isFinite(m)) return null;
+  const d = new Date(); d.setHours(h, m, 0, 0);
+  if (d <= new Date()) d.setDate(d.getDate() + 1);
+  return d;
+}
+
+function fmtAt(ts) {
+  const d = new Date(ts * 1000), now = new Date();
+  const time = d.toLocaleTimeString(LOCALE(), { hour: '2-digit', minute: '2-digit' });
+  if (d.toDateString() === now.toDateString()) return t('hoy {t}', { t: time });
+  const tm = new Date(now); tm.setDate(now.getDate() + 1);
+  if (d.toDateString() === tm.toDateString()) return t('mañana {t}', { t: time });
+  return d.toLocaleDateString(LOCALE(), { day: 'numeric', month: 'short' }) + ' ' + time;
+}
+
+async function download(startAt = null) {
   const opts = currentOptions();
   Object.assign(state.settings, opts);
+  if (startAt) opts.start_at = startAt;
   const btn = $('#download');
   btn.disabled = true;
   try {
@@ -1016,10 +1105,12 @@ async function download() {
       const section = $('#clipOn').checked ? getClip() : null;
       await api('/api/download', {
         ...opts, url: state.info.url, type: 'video', title: state.info.title, thumbnail: state.info.thumbnail, section,
+        key: state.info.key, // así empieza desde este análisis, sin volver a consultar el sitio
       });
-      toast(section ? 'Fragmento añadido a la cola' : 'Descarga añadida');
+      if (!startAt) toast(section ? 'Fragmento añadido a la cola' : 'Descarga añadida');
       celebrate();
     }
+    if (startAt) toast(t('Programada para {t}', { t: fmtAt(startAt) }));
     $('#url').value = '';
     unlockAudio();
     poll();
@@ -1051,16 +1142,46 @@ $('#mode').addEventListener('click', (e) => {
   animateIn(b.dataset.v === 'video' ? $('#qualityRow') : $('#afmtRow'), 0, 6);
   $$(b.dataset.v === 'video' ? '#quality .chip' : '#afmt .chip').forEach((c, i) => animateIn(c, 30 + i * 25, 6));
 });
-for (const id of ['#quality', '#afmt']) {
+for (const id of ['#quality', '#afmt', '#vfmt']) {
   $(id).addEventListener('click', (e) => {
     const c = e.target.closest('.chip');
     if (!c || c.classList.contains('on')) return;
     selectChip(id, c.dataset.v);
     bump(c, 1.08);
+    if (id === '#vfmt' && state.info?.type === 'video') { // los tamaños dependen del formato
+      const res = chipValue('#quality');
+      renderQualities(qualitiesFor(state.info));
+      if ($(`#quality .chip[data-v="${res}"]`)) selectChip('#quality', res);
+    }
   });
 }
+$('#subs').addEventListener('change', () => $('#subLang').classList.toggle('hidden', !$('#subs').checked || !state.subLangs?.length));
 $('#panelClose').addEventListener('click', closePanel);
-$('#download').addEventListener('click', download);
+$('#download').addEventListener('click', () => download());
+
+// Programar: la descarga espera en la lista hasta la hora elegida
+function updateSchedWhen() {
+  const d = nextAt($('#schedTime').value);
+  $('#schedWhen').textContent = d ? fmtAt(d / 1000) : '';
+  $('#schedGo').disabled = !d;
+}
+$('#scheduleBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const pop = $('#schedulePop');
+  pop.classList.toggle('hidden');
+  if (!pop.classList.contains('hidden')) { updateSchedWhen(); animateIn(pop, 0, 6); $('#schedTime').focus(); }
+});
+$('#schedTime').addEventListener('input', updateSchedWhen);
+$('#schedGo').addEventListener('click', async () => {
+  const d = nextAt($('#schedTime').value);
+  if (!d) return;
+  $('#schedulePop').classList.add('hidden');
+  saveSetting({ schedule_time: $('#schedTime').value });
+  await download(Math.floor(d / 1000));
+});
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#schedulePop, #scheduleBtn')) $('#schedulePop').classList.add('hidden');
+});
 $('#entries').addEventListener('click', async (e) => {
   const rm = e.target.closest('[data-rm]');
   if (rm && state.bulk) {
@@ -1175,6 +1296,7 @@ function statusText(j) {
     case 'done': return t('Listo') + (j.finished ? ' · ' + fmtWhen(j.finished) : '');
     case 'cancelled': return t('Cancelado');
     case 'paused': return t('En pausa') + (j.progress ? ` · ${Math.floor(j.progress)}%` : '');
+    case 'scheduled': return t('Programada para {t}', { t: fmtAt(j.start_at) });
     case 'error': return t(j.error || 'La descarga falló');
   }
   return j.status;
@@ -1203,6 +1325,7 @@ function jobActions(j, pos) {
   const cancel = btn('cancel', 'stop', 'Cancelar');
   if (j.status === 'queued') return btn('up', 'up', 'Subir en la cola', pos.first) + btn('down', 'down', 'Bajar en la cola', pos.last) + btn('pause', 'pause', 'Pausar') + cancel;
   if (j.status === 'paused') return btn('resume', 'resume', 'Reanudar') + cancel;
+  if (j.status === 'scheduled') return btn('now', 'now', 'Empezar ahora') + cancel;
   if (j.status === 'starting' || j.status === 'downloading') return btn('pause', 'pause', 'Pausar') + cancel;
   if (ACTIVE.includes(j.status)) return cancel;
   return (j.status !== 'done' ? `<button class="icon-btn" data-a="retry" title="${t('Reintentar')}">${ICONS.retry}</button>` : '')
@@ -1215,6 +1338,7 @@ async function jobAction(j, a) {
     if (a === 'cancel') await api('/api/cancel', { id: j.id });
     if (a === 'pause') await api('/api/pause', { id: j.id });
     if (a === 'resume') await api('/api/resume', { id: j.id });
+    if (a === 'now') await api('/api/now', { id: j.id });
     if (a === 'up' || a === 'down') await api('/api/move', { id: j.id, dir: a });
     if (a === 'reveal') await api('/api/reveal', { id: j.id });
     if (a === 'remove') {
@@ -1317,10 +1441,10 @@ function renderJobs(all) {
   }
   firstRender = false;
 
-  const active = all.filter((j) => ACTIVE.includes(j.status)).length;
+  const active = all.filter((j) => ACTIVE.includes(j.status) && j.status !== 'scheduled').length;
   $('#empty').classList.toggle('hidden', all.length > 0);
   $('#noResults').classList.toggle('hidden', !(all.length && !list.length));
-  $('#clear').classList.toggle('hidden', all.length === active);
+  $('#clear').classList.toggle('hidden', all.every((j) => ACTIVE.includes(j.status)));
   $('#searchWrap').classList.toggle('hidden', all.length < 4 && !q);
   const count = active ? t('{n} en curso', { n: active }) : all.length ? String(all.length) : '';
   if ($('#count').textContent !== count) { $('#count').textContent = count; bump($('#count'), 1.25); }
@@ -1346,7 +1470,8 @@ async function poll() {
     handleEvents(await api('/api/events'));
     notifyTransitions(list);
     const active = renderJobs(list);
-    pollTimer = setTimeout(poll, active ? 600 : 3000);
+    const updating = state.update && $('#updateGet').disabled; // descargando la actualización
+    pollTimer = setTimeout(poll, active || updating ? 600 : 3000);
   } catch {
     pollTimer = setTimeout(poll, 3000);
   }
@@ -1361,17 +1486,44 @@ function handleEvents(ev) {
   }
   const u = ev.updates || {};
   if (u.lumen && state.dismissedUpdate !== u.lumen.version && $('#updateBanner').classList.contains('hidden')) {
+    state.update = u.lumen;
     $('#updateText').textContent = t('Lumen {v} está disponible', { v: u.lumen.version });
+    // instalado: se actualiza desde aquí; portable: abre la página de la versión
+    $('#updateGet').textContent = t(u.lumen.installable ? 'Actualizar' : 'Descargar');
     $('#updateBanner').classList.remove('hidden');
+  }
+  const inst = u.install;
+  if (inst && state.update) {
+    if (inst.error) {
+      if (state.installError !== inst.error) { state.installError = inst.error; toast(t(inst.error), true); }
+      $('#updateText').textContent = t('Lumen {v} está disponible', { v: state.update.version });
+      $('#updateGet').disabled = false;
+    } else {
+      state.installError = null;
+      $('#updateGet').disabled = true;
+      $('#updateText').textContent = inst.done ? t('Instalando Lumen {v}…', { v: state.update.version })
+        : t('Descargando Lumen {v}… {p}', { v: state.update.version, p: inst.progress != null ? Math.floor(inst.progress) + '%' : '' });
+    }
   }
   if (u.ytdlp_ready && state.ytdlpNotified !== u.ytdlp_ready) {
     state.ytdlpNotified = u.ytdlp_ready;
     toast(t('yt-dlp {v} descargado: se usará la próxima vez que abras Lumen', { v: u.ytdlp_ready }));
   }
 }
-$('#updateGet').addEventListener('click', () => api('/api/open-release', {}).catch(() => {}));
+$('#updateGet').addEventListener('click', async () => {
+  if (!state.update?.installable) return api('/api/open-release', {}).catch(() => {});
+  try {
+    state.installError = null;
+    $('#updateGet').disabled = true;
+    await api('/api/install-update', {});
+    poll();
+  } catch (e) {
+    $('#updateGet').disabled = false;
+    toast(e.message, true);
+  }
+});
 $('#updateClose').addEventListener('click', () => {
-  state.dismissedUpdate = $('#updateText').textContent;
+  state.dismissedUpdate = state.update?.version;
   $('#updateBanner').classList.add('hidden');
 });
 

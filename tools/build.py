@@ -66,12 +66,25 @@ def main():
         shutil.copy(ROOT / name, out / name)
     shutil.copy(ROOT / "tools" / "LEEME.txt", out / "LEEME.txt")
 
+    if SIGNING:  # antes de comprimir, para que el .zip también lleve el .exe firmado
+        sign(out / "Lumen.exe")
+
     print("Comprimiendo dist/Lumen.zip…")
     archive = shutil.make_archive(str(DIST / "Lumen"), "zip", DIST, "Lumen")
     size = Path(archive).stat().st_size / 2**20
     print(f"Listo: {DIST / 'Lumen' / 'Lumen.exe'}\n       {archive} ({size:.0f} MB)")
 
     build_installer()
+
+
+# Firma de código (opcional): con LUMEN_SIGN_THUMBPRINT o LUMEN_SIGN_PFX definidos,
+# se firman Lumen.exe, el instalador y el desinstalador (ver tools/sign.ps1).
+SIGNING = bool(os.environ.get("LUMEN_SIGN_THUMBPRINT") or os.environ.get("LUMEN_SIGN_PFX"))
+SIGN_CMD = f'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{ROOT / "tools" / "sign.ps1"}"'
+
+
+def sign(path):
+    subprocess.run(f'{SIGN_CMD} "{path}"', check=True)
 
 
 def build_installer():
@@ -83,7 +96,11 @@ def build_installer():
         print("Sin Inno Setup: no se genera el instalador (winget install JRSoftware.InnoSetup)")
         return
     version = re.search(r'^APP_VERSION = "([^"]+)"', (ROOT / "app.py").read_text(encoding="utf-8"), re.M)[1]
-    subprocess.run([iscc, "/Qp", f"/DAppVersion={version}", str(ROOT / "tools" / "installer.iss")], check=True)
+    args = [iscc, "/Qp", f"/DAppVersion={version}"]
+    if SIGNING:  # Inno Setup firma el instalador y el desinstalador con la misma herramienta
+        # ISCC no entiende las comillas escapadas (\") de la línea de comandos: usa $q
+        args += ["/DSIGN", "/Slumen=" + SIGN_CMD.replace('"', "$q") + " $f"]
+    subprocess.run(args + [str(ROOT / "tools" / "installer.iss")], check=True)
     setup = DIST / "Lumen-Setup.exe"
     print(f"       {setup} ({setup.stat().st_size / 2**20:.0f} MB)")
 

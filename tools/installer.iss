@@ -33,6 +33,11 @@ SolidCompression=yes
 WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no
+#ifdef SIGN
+; build.py pasa /Slumen=... con tools/sign.ps1 cuando hay certificado
+SignTool=lumen
+SignedUninstaller=yes
+#endif
 
 [Languages]
 Name: "en"; MessagesFile: "compiler:Default.isl"
@@ -66,3 +71,11 @@ Root: HKCU; Subkey: "Software\Classes\lumen\shell\open\command"; ValueType: stri
 
 [Run]
 Filename: "{app}\Lumen.exe"; Description: "{cm:LaunchProgram,Lumen}"; Flags: nowait postinstall skipifsilent
+; Lumen se actualiza a sí mismo con /SILENT /LAUNCH: al terminar se vuelve a abrir
+Filename: "{app}\Lumen.exe"; Flags: nowait; Check: LaunchRequested
+
+[Code]
+function LaunchRequested: Boolean;
+begin
+  Result := Pos('/LAUNCH', UpperCase(GetCmdTail)) > 0;
+end;

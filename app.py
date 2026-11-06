@@ -8,6 +8,7 @@ import atexit
 import ctypes
 import json
 import os
+import queue
 import re
 import shutil
 import subprocess
@@ -32,7 +33,7 @@ for _stream in ("stdout", "stderr"):
         setattr(sys, _stream, open(os.devnull, "w", encoding="utf-8"))
 
 APP_NAME = "Lumen"
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.3.0"
 GITHUB_REPO = "guisodev/lumen"
 APP_USER_MODEL_ID = "lumen.downloader"  # identidad en la barra de tareas y en los avisos (igual en installer.iss)
 DATA = Path(os.environ.get("APPDATA") or Path.home()) / "Lumen"
@@ -100,7 +101,7 @@ DENO = next((p for p in (ROOT / "deno" / "deno.exe", ROOT / "vendor" / "deno" / 
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 URL_RE = re.compile(r"https?://[^\s<>\"']+")
-ACTIVE = ("queued", "starting", "downloading", "processing", "paused")  # aún no terminadas
+ACTIVE = ("queued", "starting", "downloading", "processing", "paused", "scheduled")  # aún no terminadas
 
 # Claves de PostProcessor.pp_key() (sin el prefijo "FFmpeg").
 PP_LABELS = {
@@ -179,6 +180,7 @@ DEFAULTS = {
     "parallel": 3, "ratelimit": 0, "template": "title_id", "custom_template": "",
     "cookies": "", "notify": True, "sound": True, "clipboard": True, "theme": "system", "ambient": True,
     "lang": "auto", "auto_update": True, "last_update_check": 0, "mp3_quality": "0", "tray": True,
+    "video_format": "mp4", "sub_lang": "", "schedule_time": "02:00",
 }
 settings_lock = threading.Lock()
 
@@ -303,19 +305,32 @@ def nominal_res(f):
     return max((t for t in TIERS if t <= target * 1.1), default=TIERS[0])
 
 
-def video_format(quality):
-    return {"format": "bv*+ba/b",
-            "format_sort": ["res" if quality == "best" else f"res:{quality}", "fps", "vcodec:h264", "acodec:aac"]}
+# Contenedores de video. MP4 prefiere H.264 + AAC (se abre en cualquier sitio);
+# MKV no tiene preferencia, así que yt-dlp elige el mejor códec (AV1, VP9…);
+# WebM busca VP9 + Opus y, si el sitio no los da, une en MKV.
+VIDEO_CONTAINERS = {
+    "mp4": {"sort": ["vcodec:h264", "acodec:aac"], "select": "bv*+ba/b", "merge": "mp4",
+            "remux": "mp4>mp4/m4v>m4v/mov>mov/mkv"},
+    "mkv": {"sort": [], "select": "bv*+ba/b", "merge": "mkv", "remux": "mkv"},
+    "webm": {"sort": ["vcodec:vp9", "acodec:opus"], "select": "bv*[ext=webm]+ba[ext=webm]/bv*+ba/b",
+             "merge": "webm/mkv", "remux": "webm>webm/mkv"},
+}
 
 
-def quality_options(info):
+def video_format(quality, container="mp4"):
+    c = VIDEO_CONTAINERS.get(container) or VIDEO_CONTAINERS["mp4"]
+    return {"format": c["select"],
+            "format_sort": ["res" if quality == "best" else f"res:{quality}", "fps", *c["sort"]]}
+
+
+def quality_options(info, container="mp4"):
     """Tamaño e insignias reales de cada calidad. Ordena los formatos una sola
     vez con el mismo criterio que la descarga (video_format) y toma el primero
     de cada resolución: equivale a preguntar a yt-dlp por cada calidad, pero en
     milisegundos en lugar de más de un segundo."""
     dur = info.get("duration") or 0
     raw = {"formats": json.loads(json.dumps(yt_dlp.YoutubeDL.sanitize_info(info).get("formats") or []))}
-    with yt_dlp.YoutubeDL(base_opts() | {"format_sort": video_format("best")["format_sort"][1:]}) as ydl:
+    with yt_dlp.YoutubeDL(base_opts() | {"format_sort": video_format("best", container)["format_sort"][1:]}) as ydl:
         ydl.sort_formats(raw)
     ranked = raw["formats"][::-1]  # sort_formats deja el mejor al final
     has_video = lambda f: f.get("height") and f.get("vcodec") not in (None, "none")
@@ -515,16 +530,47 @@ def _get_info(url):
             "qualities": [], "extractor": info.get("extractor_key"),
         }
 
-    qualities, audio = quality_options(info)
+    by_container = {c: quality_options(info, c) for c in VIDEO_CONTAINERS}
+    qualities, audio = by_container["mp4"]
     return {
         "type": "video", "url": url, "key": remember(info), "storyboard": storyboard(info),
         "title": info.get("title"),
         "uploader": info.get("uploader") or info.get("channel"),
         "duration": info.get("duration"), "views": info.get("view_count"),
         "thumbnail": pick_thumb(info), "qualities": qualities, "audio": audio,
+        "qualities_by": {c: q for c, (q, _) in by_container.items()},
         "is_live": bool(info.get("is_live")), "extractor": info.get("extractor_key"),
-        "chapters": len(info.get("chapters") or []),
+        "chapters": len(info.get("chapters") or []), "subtitles": subtitle_options(info),
     }
+
+
+def lang_tag(code):
+    """El idioma de un código de subtítulos de YouTube, sin lo que no es idioma:
+    "es-3pK74FgVxOs" (id de la pista) → "es", "en-orig" → "en", "pt-BR" → "pt-BR"."""
+    parts = code.split("-")
+    keep = [parts[0]]
+    if len(parts) > 1 and re.fullmatch(r"[A-Za-z]{2}|\d{3}|[A-Z][a-z]{3}", parts[1]):
+        keep.append(parts[1])  # región (BR, 419) o escritura (Hans)
+    return "-".join(keep)
+
+
+def subtitle_options(info):
+    """Idiomas de subtítulos: los que subió el autor y, de los automáticos,
+    el del idioma original del video más las traducciones al idioma de la
+    interfaz y al inglés (YouTube traduce a más de cien, demasiados para elegir)."""
+    def usable(tracks):
+        return [code for code, fmts in (tracks or {}).items() if fmts and code != "live_chat"]
+    out = [{"code": code, "auto": False} for code in usable(info.get("subtitles"))]
+    have = {lang_tag(s["code"]) for s in out}
+    auto = usable(info.get("automatic_captions"))
+    original = [c for c in auto if c.endswith("-orig")]
+    wanted = original + [c for c in auto if c in (ui_lang(), "en", info.get("language"))]
+    for code in dict.fromkeys(wanted):
+        base = lang_tag(code)
+        if base not in have:  # "es-orig" y "es" automático son la misma pista
+            have.add(base)
+            out.append({"code": code, "auto": True})
+    return out
 
 
 # ---------- vistas previas del fragmento ----------
@@ -543,10 +589,25 @@ def remember(info):
     raw = yt_dlp.YoutubeDL.sanitize_info(info)
     for k in ("requested_formats", "requested_downloads", "format_id"):
         raw.pop(k, None)
-    analyzed[key] = {"raw": raw, "source": None}
+    analyzed[key] = {"raw": raw, "source": None, "at": time.time()}
     while len(analyzed) > 8:
         analyzed.popitem(last=False)
     return key
+
+
+ANALYSIS_REUSE = 1800  # s: los enlaces de los formatos de YouTube valen ~6 h; vamos sobrados
+
+
+def cached_analysis(job):
+    """El análisis que ya hizo la app para este video, si sigue fresco: con él
+    la descarga empieza al momento en vez de volver a consultar el sitio."""
+    entry = analyzed.get(job.get("key") or "")
+    if not entry or job["kind"] != "video" or time.time() - entry.get("at", 0) > ANALYSIS_REUSE:
+        return None
+    raw = entry["raw"]
+    if raw.get("is_live") or raw.get("_type") not in (None, "video"):
+        return None  # los directos sí necesitan las listas HLS que el análisis rápido se salta
+    return json.loads(json.dumps(raw))  # process_ie_result modifica lo que recibe
 
 
 def storyboard(info):
@@ -790,13 +851,21 @@ def build_opts(job):
             embed_thumb = False
     else:
         q = str(o.get("quality") or "best")
-        opts |= video_format(q)
-        opts["merge_output_format"] = "mp4"
+        container = o.get("video_format") if o.get("video_format") in VIDEO_CONTAINERS else "mp4"
+        c = VIDEO_CONTAINERS[container]
+        opts |= video_format(q, container)
+        opts["merge_output_format"] = c["merge"]
         # Algunos sitios entregan un solo archivo en .avi/.flv/.webm, donde no
         # se puede incrustar la portada: se reempaqueta (sin recodificar) a MKV.
-        pps.append({"key": "FFmpegVideoRemuxer", "preferedformat": "mp4>mp4/m4v>m4v/mov>mov/mkv"})
+        pps.append({"key": "FFmpegVideoRemuxer", "preferedformat": c["remux"]})
+        if container == "webm":
+            embed_thumb = False  # WebM no admite portada incrustada
         if o.get("subs"):
-            opts.update(writesubtitles=True, subtitleslangs=["es.*", "en.*"])
+            lang = o.get("sub_lang")
+            if lang:  # el idioma elegido entre los que tiene el video
+                opts.update(writesubtitles=True, subtitleslangs=[lang], writeautomaticsub=bool(o.get("sub_auto")))
+            else:  # listas y varios enlaces: el idioma de la interfaz o, si no, inglés
+                opts.update(writesubtitles=True, subtitleslangs=[f"{ui_lang()}.*", "en.*"])
             pps.append({"key": "FFmpegEmbedSubtitle", "already_have_subtitle": False})
     if o.get("meta"):
         pps.append({"key": "FFmpegMetadata", "add_metadata": True})
@@ -915,7 +984,43 @@ def finish_job(job):
                title if ok else f'{title}\n{tr(job.get("error", ""))}')
 
 
+def wait_schedule(job):
+    """Una descarga programada espera su hora (o a que pulses «Empezar ahora»)."""
+    while job["status"] == "scheduled" and not job["cancel"]:
+        if time.time() >= (job.get("start_at") or 0):
+            job.update(status="queued", stage="En cola", order=next(_order))
+            save_scheduled()
+            return
+        time.sleep(1)
+
+
+def download_job(job):
+    """Descarga con yt-dlp. Si la app acaba de analizar el video, parte de ese
+    análisis; si falla (p. ej. caducaron los enlaces), lo intenta desde cero."""
+    with yt_dlp.YoutubeDL(build_opts(job)) as ydl:
+        ydl.add_post_processor(PlanPP(job), when="before_dl")
+        raw = cached_analysis(job)
+        if raw:
+            try:
+                ydl.process_ie_result(raw, download=True)
+                return ydl._download_retcode
+            except yt_dlp.utils.DownloadError:
+                if job["cancel"] or job.get("pause"):
+                    raise
+                job.pop("raw_error", None)
+                job["key"] = None  # el reintento vuelve a analizar
+    with yt_dlp.YoutubeDL(build_opts(job)) as ydl:
+        ydl.add_post_processor(PlanPP(job), when="before_dl")
+        return ydl.download([job["url"]])
+
+
 def run_job(job):
+    wait_schedule(job)
+    if job["status"] == "scheduled":  # cancelada antes de su hora
+        job.update(status="cancelled", stage="Cancelado")
+        save_scheduled()
+        finish_job(job)
+        return
     if not slots.acquire(job):  # cancelada o pausada antes de que le tocara
         job.update(status="cancelled" if job["cancel"] else "paused",
                    stage="Cancelado" if job["cancel"] else "En pausa")
@@ -923,10 +1028,9 @@ def run_job(job):
         return
     try:
         job.update(status="starting", stage="Iniciando")
+        keep_awake(True)
         try:
-            with yt_dlp.YoutubeDL(build_opts(job)) as ydl:
-                ydl.add_post_processor(PlanPP(job), when="before_dl")
-                code = ydl.download([job["url"]])
+            code = download_job(job)
             if job["cancel"]:
                 job["status"] = "cancelled"
             elif code and job["kind"] != "playlist":
@@ -951,7 +1055,64 @@ def run_job(job):
             job.update(error=friendly(raw), raw_error=raw)
     finally:
         slots.release()
+        keep_awake(False)
         finish_job(job)
+
+
+_awake = {"n": 0}
+_awake_lock = threading.Lock()
+
+
+def keep_awake(on):
+    """Mientras haya descargas en marcha, Windows no suspende el equipo (la
+    pantalla sí puede apagarse). Cuenta cuántas hay y suelta al terminar la última."""
+    if os.name != "nt":
+        return
+    with _awake_lock:
+        _awake["n"] += 1 if on else -1
+        ES_CONTINUOUS, ES_SYSTEM_REQUIRED = 0x80000000, 0x00000001
+        # SetThreadExecutionState vale por hilo: lo pedimos desde uno que no termina
+        _awake_requests.put(ES_CONTINUOUS | (ES_SYSTEM_REQUIRED if _awake["n"] > 0 else 0))
+
+
+_awake_requests = queue.Queue()
+
+
+def _awake_worker():
+    while True:
+        ctypes.windll.kernel32.SetThreadExecutionState(_awake_requests.get())
+
+
+# ---------- descargas programadas ----------
+# Se guardan en SCHEDULED_FILE para que sigan ahí si cierras Lumen; al abrirlo
+# se recuperan (si ya pasó su hora, empiezan enseguida).
+
+SCHEDULED_FILE = DATA / "scheduled.json"
+SCHEDULED_KEYS = ("id", "url", "title", "thumbnail", "kind", "items", "section", "count", "options",
+                  "created", "folder", "start_at")
+
+
+def save_scheduled():
+    if "--port" in sys.argv:
+        return  # copia de prueba: no toca las programadas de la de verdad
+    with jobs_lock:
+        pending = [{k: j.get(k) for k in SCHEDULED_KEYS} for j in jobs.values() if j["status"] == "scheduled"]
+    write_json(SCHEDULED_FILE, pending)
+
+
+def load_scheduled():
+    for saved in read_json(SCHEDULED_FILE, []):
+        if isinstance(saved, dict) and saved.get("url") and saved.get("id") not in jobs:
+            job = new_job(saved) | {k: saved[k] for k in ("id", "created") if saved.get(k)}
+            job.update(status="scheduled", stage="Programada", start_at=float(saved.get("start_at") or 0))
+            with jobs_lock:
+                jobs[job["id"]] = job
+            threading.Thread(target=run_job, args=(job,), daemon=True).start()
+
+
+def start_now(job):
+    if job["status"] == "scheduled":
+        job["start_at"] = 0
 
 
 _order = iter(range(1, 10**9))  # número de turno de cada descarga nueva
@@ -990,34 +1151,48 @@ def move_job(job, step):
         slots.nudge()
 
 
-def start_job(data):
-    options = {k: data.get(k) for k in ("mode", "quality", "audio_format", "meta", "subs", "folder", "chapters")}
-    save_settings(options)
+OPTION_KEYS = ("mode", "quality", "audio_format", "meta", "subs", "folder", "chapters",
+               "video_format", "sub_lang", "sub_auto")
+
+
+def new_job(data):
+    options = {k: (data.get("options") or data).get(k) for k in OPTION_KEYS}
     section = data.get("section")
     if section:
         section = [float(section[0]), float(section[1])]
         if not 0 <= section[0] < section[1]:
             raise ValueError("El fragmento elegido no es válido.")
     items = [int(i) for i in data.get("items") or []]
-    kind = data.get("type") if data.get("type") in ("video", "playlist") else "video"
-    job = {
+    kind = data.get("kind") or data.get("type")
+    kind = kind if kind in ("video", "playlist") else "video"
+    return {
         "id": uuid.uuid4().hex[:10], "url": data["url"].strip(), "title": data.get("title") or data["url"].strip(),
         "thumbnail": data.get("thumbnail"), "kind": kind, "items": items, "section": section,
-        "count": len(items) or data.get("count") or 1, "options": options,
+        "count": len(items) or data.get("count") or 1, "options": options, "key": data.get("key"),
         "status": "queued", "stage": "En cola", "progress": 0, "speed": None, "eta": None,
         "total": None, "downloaded": 0, "cancel": False, "created": time.time(),
         "folder": options.get("folder") or settings["folder"], "order": next(_order),
     }
+
+
+def start_job(data):
+    job = new_job(data)
+    # se recuerdan para la próxima vez, salvo el idioma de subtítulos, que es de este video
+    save_settings({k: v for k, v in job["options"].items() if k not in ("sub_lang", "sub_auto")})
+    if data.get("start_at") and float(data["start_at"]) > time.time():
+        job.update(status="scheduled", stage="Programada", start_at=float(data["start_at"]))
     with jobs_lock:
         jobs[job["id"]] = job
+    if job["status"] == "scheduled":
+        save_scheduled()
     threading.Thread(target=run_job, args=(job,), daemon=True).start()
     return job
 
 
 def job_sort_key(j):
     """En curso → pausadas → cola en su orden → historial (lo más reciente arriba)."""
-    rank = {"starting": 0, "downloading": 0, "processing": 0, "paused": 1, "queued": 2}.get(j["status"], 3)
-    return (rank, j.get("order", 0) if rank == 2 else 0, -j["created"])
+    rank = {"starting": 0, "downloading": 0, "processing": 0, "paused": 1, "queued": 2, "scheduled": 3}.get(j["status"], 4)
+    return (rank, j.get("order", 0) if rank == 2 else j.get("start_at") or 0 if rank == 3 else 0, -j["created"])
 
 
 incoming = []  # enlaces recibidos con lumen:// que la página todavía no ha abierto
@@ -1032,7 +1207,7 @@ def push_incoming(url):
 
 PUBLIC = ("id", "url", "title", "thumbnail", "kind", "count", "section", "status", "stage", "progress",
           "speed", "eta", "total", "downloaded", "created", "finished", "folder", "filepath",
-          "item", "item_title", "error", "raw_error")
+          "item", "item_title", "error", "raw_error", "start_at")
 
 
 def public(job):
@@ -1352,7 +1527,9 @@ def on_closing():
     except Exception:
         return True  # sin bandeja disponible: se cierra como siempre
     WINDOW.hide()
-    notify("Lumen", tr("Lumen sigue descargando en segundo plano. Ábrelo desde el icono de la bandeja."))
+    only_scheduled = all(j["status"] in ("scheduled", "paused") for j in list(jobs.values()) if j["status"] in ACTIVE)
+    notify("Lumen", tr("Lumen sigue en la bandeja para empezar las descargas programadas." if only_scheduled else
+                       "Lumen sigue descargando en segundo plano. Ábrelo desde el icono de la bandeja."))
     return False
 
 
@@ -1415,10 +1592,61 @@ def update_ytdlp():
         return {"ok": True, "version": latest, "restart": True}
 
 
+# Instalado con Lumen-Setup.exe (tiene desinstalador al lado): puede actualizarse
+# solo. La versión portable únicamente avisa y abre la página de la versión.
+INSTALLED = getattr(sys, "frozen", False) and (Path(sys.executable).parent / "unins000.exe").is_file()
+
+
 def check_lumen_update():
     rel = github_latest(GITHUB_REPO)
     if version_tuple(rel["tag_name"]) > version_tuple(APP_VERSION):
-        updates["lumen"] = {"version": rel["tag_name"].lstrip("v"), "url": rel["html_url"]}
+        setup = next((a for a in rel.get("assets", []) if a.get("name") == "Lumen-Setup.exe"), None)
+        updates["lumen"] = {"version": rel["tag_name"].lstrip("v"), "url": rel["html_url"],
+                            "installable": bool(INSTALLED and setup and setup.get("digest"))}
+        updates["_setup"] = setup
+
+
+def install_update():
+    """Descarga Lumen-Setup.exe, comprueba su SHA-256 con el que publica GitHub,
+    lo ejecuta y cierra Lumen. El instalador vuelve a abrirlo al terminar."""
+    import hashlib
+    setup = updates.get("_setup") or {}
+    expected = (setup.get("digest") or "").removeprefix("sha256:").lower()
+    try:
+        if not (INSTALLED and setup.get("browser_download_url") and expected):
+            raise ValueError("Esta copia de Lumen no puede actualizarse sola.")
+        path = Path(tempfile.mkdtemp(prefix="lumen-update-")) / "Lumen-Setup.exe"
+        digest = hashlib.sha256()
+        req = urllib.request.Request(setup["browser_download_url"], headers={"User-Agent": "Lumen"})
+        with urllib.request.urlopen(req, timeout=60) as r, open(path, "wb") as out:
+            total = int(r.headers.get("Content-Length") or setup.get("size") or 0)
+            done = 0
+            while chunk := r.read(1 << 20):
+                out.write(chunk)
+                digest.update(chunk)
+                done += len(chunk)
+                updates["install"] = {"progress": done / total * 100 if total else None}
+        if digest.hexdigest() != expected:
+            path.unlink(missing_ok=True)
+            raise ValueError("La actualización descargada no superó la comprobación de integridad.")
+        updates["install"] = {"progress": 100, "done": True}
+        save_scheduled()
+        # /SILENT enseña solo la barra de progreso; /LAUNCH hace que el instalador abra Lumen al final
+        subprocess.Popen([str(path), "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LAUNCH"],
+                         creationflags=0x00000008 | 0x00000200)  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+        threading.Timer(1.5, quit_app).start()
+    except Exception as e:
+        updates["install"] = {"error": str(e) if isinstance(e, ValueError) else "No se pudo descargar la actualización."}
+
+
+def quit_app():
+    tray["quitting"] = True
+    if tray["icon"]:
+        tray["icon"].stop()
+    if WINDOW is not None:
+        WINDOW.destroy()
+    else:
+        os._exit(0)
 
 
 def background_updates():
@@ -1546,7 +1774,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"settings": settings, "version": ytdlp_version(),
                                    "ffmpeg": bool(shutil.which("ffmpeg")), "window": WINDOW is not None,
                                    "frozen": getattr(sys, "frozen", False), "lang": ui_lang(),
-                                   "app_version": APP_VERSION, "ytdlp_updated": YTDLP_UPDATED})
+                                   "app_version": APP_VERSION, "ytdlp_updated": YTDLP_UPDATED,
+                                   "installed": INSTALLED})
         if path == "/api/jobs":
             ui["last_seen"] = time.time()
             with jobs_lock:
@@ -1557,7 +1786,7 @@ class Handler(BaseHTTPRequestHandler):
             # navegador (lumen://) y avisos de actualización
             with incoming_lock:
                 urls, incoming[:] = incoming[:], []
-            return self.send_json({"urls": urls, "updates": updates})
+            return self.send_json({"urls": urls, "updates": {k: v for k, v in updates.items() if not k.startswith("_")}})
         if path == "/api/clipboard":
             text = read_clipboard() if settings["clipboard"] else ""
             return self.send_json({"urls": list(dict.fromkeys(URL_RE.findall(text)))[:50]})
@@ -1606,7 +1835,7 @@ class Handler(BaseHTTPRequestHandler):
             return {"mode": "none" if not stream else "split" if "a" in stream else "muxed"}
         if p == "/api/clip-preview":
             return clip_preview(data["key"], data["start"], data["end"])
-        if p in ("/api/cancel", "/api/pause", "/api/resume", "/api/move"):
+        if p in ("/api/cancel", "/api/pause", "/api/resume", "/api/move", "/api/now"):
             job = jobs.get(data.get("id"))
             if job:
                 if p == "/api/cancel":
@@ -1615,6 +1844,8 @@ class Handler(BaseHTTPRequestHandler):
                     pause_job(job)
                 elif p == "/api/resume":
                     resume_job(job)
+                elif p == "/api/now":
+                    start_now(job)
                 else:
                     move_job(job, -1 if data.get("dir") == "up" else 1)
             return {"ok": True}
@@ -1623,6 +1854,15 @@ class Handler(BaseHTTPRequestHandler):
                 push_incoming(data["url"])
             else:
                 bring_to_front()
+            return {"ok": True}
+        if p == "/api/install-update":
+            if any(j["status"] in ("starting", "downloading", "processing") for j in list(jobs.values())):
+                raise ValueError("Espera a que terminen las descargas en curso.")
+            current = updates.get("install")
+            if current and not current.get("error"):
+                return {"ok": True}  # ya se está descargando
+            updates["install"] = {"progress": 0}
+            threading.Thread(target=install_update, daemon=True).start()
             return {"ok": True}
         if p == "/api/open-release":
             if updates.get("lumen"):
@@ -1691,6 +1931,10 @@ def main():
         return  # ya había un Lumen abierto: se muestra y se encarga del enlace
     register_protocol()
     load_history()
+    if os.name == "nt":
+        threading.Thread(target=_awake_worker, daemon=True).start()
+    if "--port" not in sys.argv:  # las copias de prueba no recuperan (ni ejecutan dos veces) las programadas
+        load_scheduled()
     threading.Thread(target=warm_up, daemon=True).start()
     threading.Thread(target=background_updates, daemon=True).start()
     first = int(sys.argv[sys.argv.index("--port") + 1]) if "--port" in sys.argv else 8765

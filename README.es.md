@@ -30,9 +30,14 @@ con los Windows 10 actualizados).
 
 ## Qué hace
 
-- **Video o solo audio**, en MP4, MP3, M4A, OPUS, **FLAC o WAV**, con el
-  **tamaño estimado** de cada calidad (de 144p a 4K) antes de descargar. La
-  calidad del MP3 se puede elegir.
+- **Video en MP4, MKV o WebM** (MKV guarda el mejor códec, como AV1), o **solo
+  audio** en MP3, M4A, OPUS, FLAC o WAV, con el **tamaño estimado** de cada
+  calidad (de 144p a 4K) antes de descargar. La calidad del MP3 se puede elegir.
+- **Las descargas empiezan al instante**: Lumen aprovecha el análisis que ya hizo
+  en lugar de volver a consultar el sitio.
+- **Subtítulos en el idioma que elijas**, entre los que tiene el video.
+- **Descargas programadas**: eliges una hora (de madrugada, por ejemplo) y la
+  descarga espera en la lista, aunque cierres Lumen.
 - **Busca sin salir de la app**: escribe palabras en lugar de un enlace y elige
   un resultado.
 - **Dividir por capítulos**: un archivo por capítulo, en su propia carpeta.
@@ -44,8 +49,9 @@ con los Windows 10 actualizados).
 - **Descarga desde el navegador**: un marcador manda a Lumen la página que estás
   viendo.
 - **Sigue en la bandeja del sistema** si cierras la ventana con descargas en curso.
-- **Siempre al día**: yt-dlp se actualiza solo en segundo plano, y Lumen te avisa
-  cuando sale una versión nueva.
+- **Siempre al día**: yt-dlp se actualiza solo en segundo plano, y la versión
+  instalada de Lumen se actualiza con un clic (la descarga se comprueba con la
+  huella SHA-256 que publica GitHub).
 - **Modo ambiente**: el fondo, negro, se ilumina con los colores del video.
 - **Detecta enlaces copiados** y los analiza de antemano, así que suelen estar
   listos al instante.
@@ -99,6 +105,11 @@ python tools/build.py
 El resultado queda en `dist/Lumen/`, comprimido en `dist/Lumen.zip` y, si tienes
 [Inno Setup 6](https://jrsoftware.org/isinfo.php), como instalador en
 `dist/Lumen-Setup.exe`.
+
+Para firmar `Lumen.exe`, el instalador y el desinstalador, define antes de
+compilar `LUMEN_SIGN_THUMBPRINT` (un certificado de firma de código en tu
+almacén de usuario) o `LUMEN_SIGN_PFX` y `LUMEN_SIGN_PASSWORD`; mira
+[`tools/sign.ps1`](tools/sign.ps1).
 
 Las traducciones están en [`web/i18n.js`](web/i18n.js): el texto en español es
 la clave y cada idioma tiene su diccionario. `python tools/check_i18n.py` dice
