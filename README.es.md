@@ -11,11 +11,14 @@ y listo, sin tocar la línea de comandos.
 
 ## Descargar
 
-1. Ve a [**Releases**](../../releases/latest) y descarga `Lumen.zip`.
-2. Descomprímelo donde quieras.
-3. Abre `Lumen\Lumen.exe`.
+Ve a [**Releases**](../../releases/latest) y descarga uno de estos:
 
-No hace falta instalar nada más: ffmpeg y deno ya vienen incluidos.
+- **`Lumen-Setup.exe`** (recomendado): instala Lumen para tu usuario, con acceso
+  en el menú Inicio y desinstalador. No pide permisos de administrador.
+- **`Lumen.zip`** (portable): descomprímelo donde quieras y abre `Lumen\Lumen.exe`.
+
+No hace falta instalar nada más: ffmpeg y deno ya vienen incluidos, y Lumen
+mantiene yt-dlp actualizado por su cuenta.
 
 > **Primera vez:** Windows puede mostrar «Windows protegió su PC», porque el
 > programa no está firmado digitalmente. Pulsa **Más información → Ejecutar de
@@ -27,16 +30,26 @@ con los Windows 10 actualizados).
 
 ## Qué hace
 
-- **Video o solo audio**, en MP4, MP3, M4A u OPUS, con el **tamaño estimado** de
-  cada calidad (de 144p a 4K) antes de descargar.
+- **Video o solo audio**, en MP4, MP3, M4A, OPUS, **FLAC o WAV**, con el
+  **tamaño estimado** de cada calidad (de 144p a 4K) antes de descargar. La
+  calidad del MP3 se puede elegir.
+- **Busca sin salir de la app**: escribe palabras en lugar de un enlace y elige
+  un resultado.
+- **Dividir por capítulos**: un archivo por capítulo, en su propia carpeta.
 - **Solo un fragmento**: eliges inicio y fin con un deslizador que muestra el
   fotograma de cada momento, y puedes ver el fragmento antes de descargarlo.
 - **Listas de reproducción**: marcas qué videos quieres.
 - **Varios enlaces a la vez**: pega un texto con varios y se ponen en cola.
+- **Cola flexible**: pausa, reanuda (sigue donde se quedó) y reordena descargas.
+- **Descarga desde el navegador**: un marcador manda a Lumen la página que estás
+  viendo.
+- **Sigue en la bandeja del sistema** si cierras la ventana con descargas en curso.
+- **Siempre al día**: yt-dlp se actualiza solo en segundo plano, y Lumen te avisa
+  cuando sale una versión nueva.
 - **Modo ambiente**: el fondo, negro, se ilumina con los colores del video.
 - **Detecta enlaces copiados** y los analiza de antemano, así que suelen estar
   listos al instante.
-- **En español o en inglés**, según el idioma de Windows (se cambia en Ajustes).
+- **En español, inglés, portugués o francés**, según el idioma de Windows (se cambia en Ajustes).
 - Portada y metadatos incrustados, subtítulos, historial con buscador, avisos de
   Windows al terminar, tema claro y oscuro, límite de velocidad y más.
 
@@ -50,8 +63,9 @@ tienes tu sesión iniciada. Con Chrome, Edge o Brave, ciérralo antes de
 descargar; Firefox funciona abierto.
 
 **Un sitio que antes funcionaba dejó de hacerlo.**
-Los sitios cambian a menudo y yt-dlp se actualiza para seguirles el ritmo.
-Descarga la última versión de Lumen desde [Releases](../../releases/latest).
+Los sitios cambian a menudo y yt-dlp se actualiza para seguirles el ritmo. Lumen
+descarga las versiones nuevas de yt-dlp por su cuenta (**Ajustes → Buscar
+actualización** lo fuerza); la nueva se usa la próxima vez que abras Lumen.
 
 **¿Dónde guarda los ajustes y el historial?**
 En `%APPDATA%\Lumen`. Borrar esa carpeta deja Lumen como recién instalado.
@@ -61,7 +75,7 @@ En `%APPDATA%\Lumen`. Borrar esa carpeta deja Lumen como recién instalado.
 Necesitas Python 3.12 o posterior en Windows.
 
 ```bash
-python -m pip install -U "yt-dlp[curl-cffi]" yt-dlp-ejs mutagen pywebview pyinstaller
+python -m pip install -U "yt-dlp[curl-cffi]" yt-dlp-ejs mutagen pywebview pystray pillow pyinstaller
 ```
 
 Para probarlo sin compilar: `python app.py` (o doble clic en `Abrir Lumen.bat`).
@@ -82,7 +96,13 @@ python tools/collect_licenses.py
 python tools/build.py
 ```
 
-El resultado queda en `dist/Lumen/` y comprimido en `dist/Lumen.zip`.
+El resultado queda en `dist/Lumen/`, comprimido en `dist/Lumen.zip` y, si tienes
+[Inno Setup 6](https://jrsoftware.org/isinfo.php), como instalador en
+`dist/Lumen-Setup.exe`.
+
+Las traducciones están en [`web/i18n.js`](web/i18n.js): el texto en español es
+la clave y cada idioma tiene su diccionario. `python tools/check_i18n.py` dice
+qué textos faltan.
 
 ## Licencia
 

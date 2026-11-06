@@ -3,7 +3,7 @@
 Uso:  python tools/build.py
 
 Necesita (una sola vez):
-  python -m pip install -U pyinstaller "yt-dlp[curl-cffi]" yt-dlp-ejs mutagen pywebview
+  python -m pip install -U pyinstaller "yt-dlp[curl-cffi]" yt-dlp-ejs mutagen pywebview pystray pillow
   vendor/ffmpeg/   ffmpeg.exe, ffprobe.exe y sus .dll
                    (ffmpeg-master-latest-win64-gpl-shared.zip de github.com/yt-dlp/FFmpeg-Builds)
   vendor/deno/     deno.exe (deno-x86_64-pc-windows-msvc.zip de github.com/denoland/deno)
@@ -11,8 +11,12 @@ Necesita (una sola vez):
 Resultado:
   dist/Lumen/Lumen.exe   el programa (con la carpeta _internal al lado)
   dist/Lumen.zip         lo mismo comprimido, para compartir
+  dist/Lumen-Setup.exe   instalador (si Inno Setup 6 está instalado: winget install JRSoftware.InnoSetup)
 """
+import os
+import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -43,6 +47,7 @@ def main():
         "--collect-all", "yt_dlp_ejs",  # scripts que yt-dlp ejecuta con deno
         "--collect-all", "curl_cffi",   # se hace pasar por un navegador (TikTok y otros lo exigen)
         "--collect-all", "mutagen",     # portadas en .m4a y .opus
+        "--collect-all", "pystray",     # icono en la bandeja del sistema (elige su motor al importarse)
         "--distpath", str(DIST),
         "--workpath", str(ROOT / "build"),
         "--specpath", str(ROOT / "build"),
@@ -65,6 +70,22 @@ def main():
     archive = shutil.make_archive(str(DIST / "Lumen"), "zip", DIST, "Lumen")
     size = Path(archive).stat().st_size / 2**20
     print(f"Listo: {DIST / 'Lumen' / 'Lumen.exe'}\n       {archive} ({size:.0f} MB)")
+
+    build_installer()
+
+
+def build_installer():
+    """Genera dist/Lumen-Setup.exe con Inno Setup, si está instalado."""
+    candidates = [Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Inno Setup 6" / "ISCC.exe"]
+    candidates += [Path(os.environ.get(v, "")) / "Inno Setup 6" / "ISCC.exe" for v in ("ProgramFiles(x86)", "ProgramFiles")]
+    iscc = shutil.which("ISCC") or next((str(p) for p in candidates if p.is_file()), None)
+    if not iscc:
+        print("Sin Inno Setup: no se genera el instalador (winget install JRSoftware.InnoSetup)")
+        return
+    version = re.search(r'^APP_VERSION = "([^"]+)"', (ROOT / "app.py").read_text(encoding="utf-8"), re.M)[1]
+    subprocess.run([iscc, "/Qp", f"/DAppVersion={version}", str(ROOT / "tools" / "installer.iss")], check=True)
+    setup = DIST / "Lumen-Setup.exe"
+    print(f"       {setup} ({setup.stat().st_size / 2**20:.0f} MB)")
 
 
 if __name__ == "__main__":

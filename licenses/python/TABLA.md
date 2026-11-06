@@ -17,3 +17,6 @@
 | pyinstaller | 6.22.3 | GNU General Public License v2 (GPLv2) |
 | curl_cffi | 0.17.0 | MIT |
 | mutagen | 1.48.1 | GPL-2.0-or-later |
+| pystray | 0.19.5 | LGPLv3 |
+| six | 1.17.0 | MIT |
+| pillow | 13.0.0 | MIT-CMU |

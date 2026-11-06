@@ -18,6 +18,13 @@
     <button class="icon-btn" id="settingsBtn" title="Ajustes"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
   </header>
 
+  <div class="clip-banner update-banner hidden" id="updateBanner">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m-5-5 5 5 5-5M5 21h14"/></svg>
+    <span id="updateText"></span>
+    <button class="btn small primary" id="updateGet">Descargar</button>
+    <button class="icon-btn" id="updateClose" title="Ignorar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+  </div>
+
   <div class="clip-banner hidden" id="clipBanner">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
     <span id="clipText"></span>
@@ -33,7 +40,7 @@
   <section class="card url-card" id="urlCard">
     <label class="url-field">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-      <input id="url" type="text" placeholder="Pega uno o varios enlaces…" autocomplete="off" spellcheck="false" autofocus>
+      <input id="url" type="text" placeholder="Pega un enlace o escribe para buscar…" autocomplete="off" spellcheck="false" autofocus>
     </label>
     <button class="btn ghost" id="paste">Pegar</button>
     <button class="btn primary" id="analyze">Analizar</button>
@@ -98,6 +105,7 @@
           <label class="check"><input type="checkbox" id="meta"> Portada y metadatos</label>
           <label class="check" id="subsWrap"><input type="checkbox" id="subs"> Subtítulos (es/en)</label>
           <label class="check" id="clipWrap"><input type="checkbox" id="clipOn"> Solo un fragmento</label>
+          <label class="check hidden" id="chapWrap"><input type="checkbox" id="chapOn"> <span id="chapText">Dividir por capítulos</span></label>
         </div>
 
         <div class="clip hidden" id="clipBody">
@@ -190,6 +198,8 @@
         <option value="auto">Automático (Windows)</option>
         <option value="es">Español</option>
         <option value="en">English</option>
+        <option value="pt">Português</option>
+        <option value="fr">Français</option>
       </select>
     </div>
     <div class="field">
@@ -213,6 +223,22 @@
       <small id="sTemplateHint"></small>
     </div>
     <div class="field">
+      <label for="sMp3">Calidad del MP3</label>
+      <select id="sMp3">
+        <option value="0">Máxima (VBR)</option>
+        <option value="320">320 kbps</option>
+        <option value="256">256 kbps</option>
+        <option value="192">192 kbps</option>
+        <option value="128">128 kbps</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Descargar desde el navegador</label>
+      <small>Crea un marcador en tu navegador con esta dirección. Cuando estés viendo un video, pulsa el marcador y se abrirá en Lumen.</small>
+      <div class="inline bookmarklet"><code id="bmCode"></code><button type="button" class="btn small ghost" id="bmCopy">Copiar</button></div>
+      <small class="hidden" id="bmNote">Disponible en la versión instalada o portable de Lumen (Lumen.exe).</small>
+    </div>
+    <div class="field">
       <label for="sCookies">Usar sesión del navegador</label>
       <select id="sCookies">
         <option value="">No usar</option>
@@ -230,6 +256,8 @@
       <label class="check"><input type="checkbox" id="sSound"> Sonido al terminar</label>
       <label class="check"><input type="checkbox" id="sClipboard"> Detectar enlaces copiados</label>
       <label class="check"><input type="checkbox" id="sAmbient"> Modo ambiente: el fondo toma los colores del video</label>
+      <label class="check"><input type="checkbox" id="sTray"> Seguir en la bandeja del sistema si cierras la ventana con descargas en curso</label>
+      <label class="check"><input type="checkbox" id="sAutoUpdate"> Actualizar yt-dlp automáticamente</label>
     </div>
     <div class="field version">
       <span id="sVersion"></span>

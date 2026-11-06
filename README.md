@@ -10,11 +10,14 @@ paste a link, pick a quality and you’re done — no command line needed.
 
 ## Download
 
-1. Go to [**Releases**](../../releases/latest) and download `Lumen.zip`.
-2. Unzip it anywhere.
-3. Open `Lumen\Lumen.exe`.
+Go to [**Releases**](../../releases/latest) and download either:
 
-Nothing else to install: ffmpeg and deno are bundled.
+- **`Lumen-Setup.exe`** (recommended): installs Lumen for your user, with a
+  Start menu entry and an uninstaller. No administrator rights needed.
+- **`Lumen.zip`** (portable): unzip it anywhere and open `Lumen\Lumen.exe`.
+
+Nothing else to install: ffmpeg and deno are bundled, and Lumen keeps yt-dlp
+up to date by itself.
 
 > **First run:** Windows may show “Windows protected your PC” because the app
 > isn’t digitally signed. Click **More info → Run anyway**. You can check that
@@ -25,16 +28,27 @@ and in up-to-date Windows 10).
 
 ## Features
 
-- **Video or audio only**, as MP4, MP3, M4A or OPUS, with the **estimated size**
-  of each quality (144p to 4K) before you download.
+- **Video or audio only**, as MP4, MP3, M4A, OPUS, **FLAC or WAV**, with the
+  **estimated size** of each quality (144p to 4K) before you download. MP3
+  bitrate is configurable.
+- **Search without leaving the app**: type words instead of a link and pick a
+  result.
+- **Split by chapters**: one file per chapter, in its own folder.
 - **Download just a clip**: pick the start and end with a slider that shows the
   frame at each moment, and watch the clip before downloading it.
 - **Playlists**: choose which videos you want.
 - **Several links at once**: paste a block of text with links and they’re queued.
+- **Flexible queue**: pause, resume (it continues where it left off) and reorder
+  downloads.
+- **Download from the browser**: a bookmark sends the page you’re watching to
+  Lumen.
+- **Keeps working in the system tray** if you close the window while downloading.
+- **Always up to date**: yt-dlp updates itself in the background, and Lumen tells
+  you when a new version is out.
 - **Ambient mode**: the black background lights up with the video’s colors.
 - **Copied links are detected** and analyzed ahead of time, so they’re usually
   ready instantly.
-- **English or Spanish**, following your Windows language (changeable in Settings).
+- **English, Spanish, Portuguese or French**, following your Windows language (changeable in Settings).
 - Embedded cover art and metadata, subtitles, searchable history, Windows
   notifications, light and dark themes, speed limit and more.
 
@@ -48,8 +62,9 @@ in. With Chrome, Edge or Brave, close the browser before downloading; Firefox
 works while open.
 
 **A site that used to work has stopped working.**
-Sites change often and yt-dlp is updated to keep up. Download the latest version
-of Lumen from [Releases](../../releases/latest).
+Sites change often and yt-dlp is updated to keep up. Lumen downloads new yt-dlp
+versions by itself (**Settings → Check for updates** forces it); the new version
+is used the next time you open Lumen.
 
 **Where are settings and history stored?**
 In `%APPDATA%\Lumen`. Deleting that folder resets Lumen.
@@ -59,7 +74,7 @@ In `%APPDATA%\Lumen`. Deleting that folder resets Lumen.
 You need Python 3.12 or later on Windows.
 
 ```bash
-python -m pip install -U "yt-dlp[curl-cffi]" yt-dlp-ejs mutagen pywebview pyinstaller
+python -m pip install -U "yt-dlp[curl-cffi]" yt-dlp-ejs mutagen pywebview pystray pillow pyinstaller
 ```
 
 To try it without building: `python app.py` (or double-click `Abrir Lumen.bat`).
@@ -80,10 +95,13 @@ python tools/collect_licenses.py
 python tools/build.py
 ```
 
-The result is in `dist/Lumen/` and zipped as `dist/Lumen.zip`.
+The result is in `dist/Lumen/`, zipped as `dist/Lumen.zip`, and, if
+[Inno Setup 6](https://jrsoftware.org/isinfo.php) is installed, as the installer
+`dist/Lumen-Setup.exe`.
 
 Translations live in [`web/i18n.js`](web/i18n.js): the Spanish text is the key
-and the English text its value.
+and each language has its own dictionary. `python tools/check_i18n.py` lists
+missing texts.
 
 ## License
 

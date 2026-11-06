@@ -31,8 +31,37 @@ for _stream in ("stdout", "stderr"):
     if getattr(sys, _stream) is None:
         setattr(sys, _stream, open(os.devnull, "w", encoding="utf-8"))
 
-try:
+APP_NAME = "Lumen"
+APP_VERSION = "1.2.0"
+GITHUB_REPO = "guisodev/lumen"
+APP_USER_MODEL_ID = "lumen.downloader"  # identidad en la barra de tareas y en los avisos (igual en installer.iss)
+DATA = Path(os.environ.get("APPDATA") or Path.home()) / "Lumen"
+YTDLP_DIR = DATA / "ytdlp"  # yt-dlp actualizado desde la app (ver update_ytdlp)
+
+
+def version_tuple(v):
+    return tuple(int(x) for x in re.findall(r"\d+", str(v or "0")))
+
+
+def _import_ytdlp():
+    """Carga el yt-dlp incluido o, si en %APPDATA% hay uno más nuevo descargado
+    desde la app, ese. Así los arreglos de yt-dlp llegan sin publicar otro Lumen."""
     import yt_dlp
+    zip_path, ver_file = YTDLP_DIR / "yt-dlp.zip", YTDLP_DIR / "version.txt"
+    try:
+        newer = zip_path.is_file() and version_tuple(ver_file.read_text().strip()) > version_tuple(yt_dlp.version.__version__)
+    except OSError:
+        newer = False
+    if newer:
+        for name in [m for m in sys.modules if m == "yt_dlp" or m.startswith("yt_dlp.")]:
+            del sys.modules[name]
+        sys.path.insert(0, str(zip_path))
+        import yt_dlp
+    return yt_dlp
+
+
+try:
+    yt_dlp = _import_ytdlp()
     from yt_dlp.utils import DownloadCancelled, download_range_func
 except ImportError:
     msg = "Falta yt-dlp. Instálalo con:\n\n    python -m pip install -U yt-dlp"
@@ -42,12 +71,12 @@ except ImportError:
         print(msg)
     sys.exit(1)
 
+YTDLP_UPDATED = str(YTDLP_DIR) in (getattr(yt_dlp, "__file__", "") or "")
+
 # Con PyInstaller los archivos van dentro de _MEIPASS; los datos del usuario
 # se guardan en %APPDATA% para que funcione aunque la carpeta sea de solo lectura.
 ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 WEB = ROOT / "web"
-APP_NAME = "Lumen"
-DATA = Path(os.environ.get("APPDATA") or Path.home()) / "Lumen"
 _OLD_DATA = DATA.with_name("yt-dlp-studio")  # nombre anterior de la app
 if _OLD_DATA.is_dir() and not DATA.exists():
     try:
@@ -71,7 +100,7 @@ DENO = next((p for p in (ROOT / "deno" / "deno.exe", ROOT / "vendor" / "deno" / 
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 URL_RE = re.compile(r"https?://[^\s<>\"']+")
-ACTIVE = ("queued", "starting", "downloading", "processing")
+ACTIVE = ("queued", "starting", "downloading", "processing", "paused")  # aún no terminadas
 
 # Claves de PostProcessor.pp_key() (sin el prefijo "FFmpeg").
 PP_LABELS = {
@@ -100,7 +129,9 @@ FRIENDLY_ERRORS = [
     (r"confirm your age|age-restricted|inappropriate for some users",
      "Este video tiene restricción de edad. Activa «Usar sesión del navegador» en Ajustes."),
     (r"not a bot", "YouTube pide comprobar que no eres un bot. Activa «Usar sesión del navegador» en Ajustes o actualiza yt-dlp."),
-    (r"logged.?in|login required|requires? (an )?(account|authentication)|log in to",
+    (r"IP address is unable to access the Reddit API",
+     "Reddit bloquea el acceso desde tu conexión. Suele pasar con VPN, proxies o redes de empresa o universidad: prueba sin VPN o desde otra red."),
+    (r"logged.?in|login required|requires? (an )?(account|authentication)|authentication is required|log in to",
      "Este sitio pide iniciar sesión. Activa «Usar sesión del navegador» en Ajustes."),
     (r"cookie database|DPAPI|decrypt|could not (copy|find) .*cookie",
      "No se pudieron leer las cookies del navegador. Ciérralo por completo o prueba con Firefox."),
@@ -147,7 +178,7 @@ DEFAULTS = {
     "audio_format": "mp3", "meta": True, "subs": False,
     "parallel": 3, "ratelimit": 0, "template": "title_id", "custom_template": "",
     "cookies": "", "notify": True, "sound": True, "clipboard": True, "theme": "system", "ambient": True,
-    "lang": "auto",
+    "lang": "auto", "auto_update": True, "last_update_check": 0, "mp3_quality": "0", "tray": True,
 }
 settings_lock = threading.Lock()
 
@@ -182,38 +213,49 @@ def save_settings(data):
 # con el texto en español como clave. El servidor las lee de ahí para lo poco
 # que muestra él mismo (las notificaciones de Windows).
 
+LANGS = ("es", "en", "pt", "fr")
+WIN_LANGS = {0x0A: "es", 0x16: "pt", 0x0C: "fr"}  # LANG_SPANISH, LANG_PORTUGUESE, LANG_FRENCH
+
+
 def ui_lang():
-    """'es' o 'en': el elegido en Ajustes o, en automático, el idioma de Windows."""
-    if settings.get("lang") in ("es", "en"):
+    """El idioma elegido en Ajustes o, en automático, el de Windows (inglés si no lo tenemos)."""
+    if settings.get("lang") in LANGS:
         return settings["lang"]
     try:
         primary = ctypes.windll.kernel32.GetUserDefaultUILanguage() & 0x3FF
-        return "es" if primary == 0x0A else "en"  # 0x0A = LANG_SPANISH
+        return WIN_LANGS.get(primary, "en")
     except Exception:
         import locale
-        return "es" if (locale.getlocale()[0] or "").lower().startswith("es") else "en"
+        code = (locale.getlocale()[0] or "")[:2].lower()
+        return code if code in LANGS else "en"
 
 
-_EN = None
+_DICTS = None
 
 
 def tr(es):
-    global _EN
-    if ui_lang() != "en":
+    global _DICTS
+    lang = ui_lang()
+    if lang == "es":
         return es
-    if _EN is None:
+    if _DICTS is None:
         try:
             text = (WEB / "i18n.js").read_text(encoding="utf-8")
-            _EN = dict(re.findall(r"^\s*'(.+?)': '(.*)',\s*$", text, re.M))
+            _DICTS = {name.lower(): dict(re.findall(r"^\s*'(.+?)': '(.*)',\s*$", body, re.M))
+                      for name, body in re.findall(r"^const ([A-Z]{2}) = \{\n(.*?)\n\};", text, re.M | re.S)}
         except OSError:
-            _EN = {}
-    return _EN.get(es, es)
+            _DICTS = {}
+    return _DICTS.get(lang, {}).get(es, es)
 
 
 def base_opts():
     opts = {"quiet": True, "no_warnings": True, "noplaylist": True}
     if DENO:  # YouTube pide resolver retos en JavaScript; deno lo hace bien y rápido
         opts["js_runtimes"] = {"deno": {"path": str(DENO)}}
+        if YTDLP_UPDATED:
+            # un yt-dlp más nuevo que el incluido puede pedir una versión más nueva
+            # de sus scripts de JavaScript: se le permite bajarla de su GitHub
+            opts["remote_components"] = {"ejs:github"}
     if settings.get("cookies"):
         opts["cookiesfrombrowser"] = (settings["cookies"],)
     return opts
@@ -425,7 +467,14 @@ def warm_up():
         pass
 
 
+SEARCH_RESULTS = 10
+
+
 def _get_info(url):
+    # Lo que no parece un enlace se busca en YouTube
+    query = None
+    if not re.match(r"^[a-z][\w+.-]*:", url, re.I):
+        query, url = url, f"ytsearch{SEARCH_RESULTS}:{url}"
     try:
         try:
             if analyzer_lock.acquire(blocking=False):
@@ -449,7 +498,13 @@ def _get_info(url):
         for i, e in enumerate(info.get("entries") or [], 1):
             if e:
                 entries.append({"index": i, "id": e.get("id"), "title": e.get("title") or e.get("url"),
-                                "duration": e.get("duration"), "thumbnail": pick_thumb(e, 400)})
+                                "duration": e.get("duration"), "thumbnail": pick_thumb(e, 400),
+                                "url": e.get("webpage_url") or e.get("url"),
+                                "uploader": e.get("uploader") or e.get("channel"), "views": e.get("view_count")})
+        if query is not None:
+            return {"type": "search", "url": url, "query": query, "title": query, "count": len(entries),
+                    "entries": entries, "thumbnail": next((e["thumbnail"] for e in entries if e["thumbnail"]), None),
+                    "qualities": []}
         return {
             "type": "playlist", "url": url,
             "title": info.get("title") or "Lista de reproducción",
@@ -468,6 +523,7 @@ def _get_info(url):
         "duration": info.get("duration"), "views": info.get("view_count"),
         "thumbnail": pick_thumb(info), "qualities": qualities, "audio": audio,
         "is_live": bool(info.get("is_live")), "extractor": info.get("extractor_key"),
+        "chapters": len(info.get("chapters") or []),
     }
 
 
@@ -618,21 +674,37 @@ ui = {"focused": True, "last_seen": time.time()}
 
 
 class Slots:
-    """Semáforo cuyo límite se puede cambiar en Ajustes mientras hay descargas."""
+    """Turnos de descarga: como mucho N a la vez (cambiable en Ajustes) y, entre
+    las que esperan, siempre la de menor número de turno ("order"), que el
+    usuario puede subir o bajar en la cola."""
 
     def __init__(self):
         self.cv = threading.Condition()
         self.active = 0
+        self.waiting = []
 
     def acquire(self, job):
+        """True cuando le toca; False si mientras esperaba se canceló o pausó."""
         with self.cv:
-            while self.active >= max(1, int(settings["parallel"])) and not job["cancel"]:
-                self.cv.wait(1)
-            self.active += 1
+            self.waiting.append(job)
+            try:
+                while not (job["cancel"] or job.get("pause")):
+                    first = min(self.waiting, key=lambda j: j["order"])
+                    if self.active < max(1, int(settings["parallel"])) and first is job:
+                        self.active += 1
+                        return True
+                    self.cv.wait(1)
+                return False
+            finally:
+                self.waiting.remove(job)
 
     def release(self):
         with self.cv:
             self.active -= 1
+            self.cv.notify_all()
+
+    def nudge(self):
+        with self.cv:
             self.cv.notify_all()
 
 
@@ -674,7 +746,8 @@ def build_opts(job):
     # final se mueve a la carpeta del usuario: así un archivo intermedio con el
     # mismo nombre (p. ej. un .mp3 de origen al convertir a .m4a) nunca puede
     # pisar ni borrar algo que el usuario ya tenía.
-    job["_tmp"] = tempfile.mkdtemp(prefix="lumen-job-")
+    if not job.get("_tmp"):  # al reanudar se reutiliza: ahí están los .part a medias
+        job["_tmp"] = tempfile.mkdtemp(prefix="lumen-job-")
     job["_home"] = folder
     opts = base_opts() | {
         "paths": {"home": folder, "temp": job["_tmp"]},
@@ -709,9 +782,11 @@ def build_opts(job):
             # El formato "audio" de TikTok es la pista musical asociada, no lo
             # que suena en el video (voces incluidas): sacamos el audio del video.
             opts["format"] = "best"
-        pps.append({"key": "FFmpegExtractAudio", "preferredcodec": fmt, "preferredquality": "0"})
-        if fmt in ("m4a", "opus") and not yt_dlp.dependencies.mutagen:
-            # sin mutagen la portada se incrusta con ffmpeg, que falla en .m4a/.opus
+        # MP3: "0" es VBR de máxima calidad (V0); "320", "192"… son kbps fijos
+        quality = str(settings.get("mp3_quality") or "0") if fmt == "mp3" else "0"
+        pps.append({"key": "FFmpegExtractAudio", "preferredcodec": fmt, "preferredquality": quality})
+        if fmt == "wav" or (fmt in ("m4a", "opus", "flac") and not yt_dlp.dependencies.mutagen):
+            # WAV no admite portada; en el resto sin mutagen ffmpeg falla al incrustarla
             embed_thumb = False
     else:
         q = str(o.get("quality") or "best")
@@ -728,6 +803,11 @@ def build_opts(job):
     if embed_thumb:
         opts["writethumbnail"] = True
         pps.append({"key": "EmbedThumbnail", "already_have_thumbnail": False})
+    if o.get("chapters") and job["kind"] == "video" and not job.get("section"):
+        # Una pista por capítulo, en una carpeta con el nombre del video
+        opts["outtmpl"] = {"default": name + ".%(ext)s",
+                           "chapter": os.path.join(name, "%(section_number)02d - %(section_title)s.%(ext)s")}
+        pps.append({"key": "FFmpegSplitChapters", "force_keyframes": False})
     opts["postprocessors"] = pps
     return opts
 
@@ -751,8 +831,8 @@ def set_overall(job, item_no, item_fraction):
 
 
 def progress_hook(job, d):
-    if job["cancel"]:
-        raise DownloadCancelled("Cancelado")
+    if job["cancel"] or job.get("pause"):
+        raise DownloadCancelled("Cancelado")  # al pausar, los .part se quedan para reanudar
     info = d.get("info_dict") or {}
     item_no = item_number(job, info)
     if job["kind"] != "playlist":
@@ -806,6 +886,8 @@ class PlanPP(yt_dlp.postprocessor.PostProcessor):
 
 
 def pp_hook(job, d):
+    if d.get("postprocessor") == "Plan":
+        return  # PlanPP es nuestro y va antes de descargar: no es una etapa de procesado
     info = d.get("info_dict") or {}
     if d["status"] == "started":
         job.update(status="processing", speed=None, eta=None,
@@ -820,12 +902,26 @@ def pp_hook(job, d):
         job["filepath"] = os.path.dirname(path) if job["kind"] == "playlist" else path
 
 
+def finish_job(job):
+    """Cierre común: limpia la carpeta temporal salvo en pausa, guarda y avisa."""
+    if job["status"] != "paused" and job.get("_tmp"):
+        shutil.rmtree(job.pop("_tmp"), ignore_errors=True)
+    job.update(speed=None, eta=None, finished=time.time())
+    save_history()
+    if job["status"] in ("done", "error") and settings["notify"] and not ui["focused"]:
+        ok = job["status"] == "done"
+        title = tr(job["title"])
+        notify(tr("Descarga terminada") if ok else tr("La descarga falló"),
+               title if ok else f'{title}\n{tr(job.get("error", ""))}')
+
+
 def run_job(job):
-    slots.acquire(job)
+    if not slots.acquire(job):  # cancelada o pausada antes de que le tocara
+        job.update(status="cancelled" if job["cancel"] else "paused",
+                   stage="Cancelado" if job["cancel"] else "En pausa")
+        finish_job(job)
+        return
     try:
-        if job["cancel"]:
-            job["status"] = "cancelled"
-            return
         job.update(status="starting", stage="Iniciando")
         try:
             with yt_dlp.YoutubeDL(build_opts(job)) as ydl:
@@ -837,29 +933,65 @@ def run_job(job):
                 job["status"] = "error"
             else:
                 job.update(status="done", progress=100, stage="Listo")
+                split_dir = os.path.splitext(job.get("filepath") or "")[0]
+                if job["options"].get("chapters") and os.path.isdir(split_dir) and os.listdir(split_dir):
+                    # dividido en pistas: el archivo entero sobra (duplica todo)
+                    os.remove(job["filepath"])
+                    job["filepath"] = split_dir
         except DownloadCancelled:
             job["status"] = "cancelled"
         except Exception as e:  # DownloadError y similares
             job["status"] = "cancelled" if job["cancel"] else "error"
             job.setdefault("raw_error", clean(e))
+        if job.get("pause") and not job["cancel"] and job["status"] != "done":
+            job.update(status="paused", stage="En pausa")
+            job.pop("raw_error", None)
         if job["status"] == "error":
             raw = job.get("raw_error") or "La descarga falló"
             job.update(error=friendly(raw), raw_error=raw)
     finally:
         slots.release()
-        if job.get("_tmp"):
-            shutil.rmtree(job.pop("_tmp"), ignore_errors=True)
-        job.update(speed=None, eta=None, finished=time.time())
-        save_history()
-        if job["status"] in ("done", "error") and settings["notify"] and not ui["focused"]:
-            ok = job["status"] == "done"
-            title = tr(job["title"])
-            notify(tr("Descarga terminada") if ok else tr("La descarga falló"),
-                   title if ok else f'{title}\n{tr(job.get("error", ""))}')
+        finish_job(job)
+
+
+_order = iter(range(1, 10**9))  # número de turno de cada descarga nueva
+
+
+def pause_job(job):
+    if job["status"] in ("queued", "starting", "downloading"):
+        job["pause"] = True
+        slots.nudge()
+
+
+def resume_job(job):
+    if job["status"] == "paused":
+        job.update(pause=False, status="queued", stage="En cola", order=next(_order))
+        threading.Thread(target=run_job, args=(job,), daemon=True).start()
+
+
+def cancel_job(job):
+    job["cancel"] = True
+    if job["status"] == "paused":  # no hay hilo en marcha: se cierra aquí
+        job.update(status="cancelled", stage="Cancelado")
+        finish_job(job)
+    slots.nudge()
+
+
+def move_job(job, step):
+    """Sube (-1) o baja (+1) una descarga en espera dentro de la cola."""
+    with jobs_lock:
+        queue = sorted((j for j in jobs.values() if j["status"] == "queued"), key=lambda j: j["order"])
+    if job not in queue:
+        return
+    i = queue.index(job)
+    k = i + step
+    if 0 <= k < len(queue):
+        job["order"], queue[k]["order"] = queue[k]["order"], job["order"]
+        slots.nudge()
 
 
 def start_job(data):
-    options = {k: data.get(k) for k in ("mode", "quality", "audio_format", "meta", "subs", "folder")}
+    options = {k: data.get(k) for k in ("mode", "quality", "audio_format", "meta", "subs", "folder", "chapters")}
     save_settings(options)
     section = data.get("section")
     if section:
@@ -874,12 +1006,28 @@ def start_job(data):
         "count": len(items) or data.get("count") or 1, "options": options,
         "status": "queued", "stage": "En cola", "progress": 0, "speed": None, "eta": None,
         "total": None, "downloaded": 0, "cancel": False, "created": time.time(),
-        "folder": options.get("folder") or settings["folder"],
+        "folder": options.get("folder") or settings["folder"], "order": next(_order),
     }
     with jobs_lock:
         jobs[job["id"]] = job
     threading.Thread(target=run_job, args=(job,), daemon=True).start()
     return job
+
+
+def job_sort_key(j):
+    """En curso → pausadas → cola en su orden → historial (lo más reciente arriba)."""
+    rank = {"starting": 0, "downloading": 0, "processing": 0, "paused": 1, "queued": 2}.get(j["status"], 3)
+    return (rank, j.get("order", 0) if rank == 2 else 0, -j["created"])
+
+
+incoming = []  # enlaces recibidos con lumen:// que la página todavía no ha abierto
+incoming_lock = threading.Lock()
+
+
+def push_incoming(url):
+    with incoming_lock:
+        incoming.append(url)
+    bring_to_front()
 
 
 PUBLIC = ("id", "url", "title", "thumbnail", "kind", "count", "section", "status", "stage", "progress",
@@ -965,15 +1113,20 @@ $x.LoadXml("<toast><visual><binding template='ToastGeneric'><text/><text/></bind
 $t = $x.GetElementsByTagName('text')
 [void]$t.Item(0).AppendChild($x.CreateTextNode($env:TOAST_TITLE))
 [void]$t.Item(1).AppendChild($x.CreateTextNode($env:TOAST_BODY))
-$app = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe'
-[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($app).Show([Windows.UI.Notifications.ToastNotification]::new($x))
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($env:TOAST_APP).Show([Windows.UI.Notifications.ToastNotification]::new($x))
 """
 
 
 def notify(title, body):
     if os.name != "nt":
         return
-    env = dict(os.environ, TOAST_TITLE=title, TOAST_BODY=body[:200])
+    # Windows solo muestra el aviso con el nombre e icono de Lumen si hay un acceso
+    # en el menú Inicio con su identidad (lo crea el instalador); si no, sale a
+    # nombre de PowerShell, que es quien lo envía.
+    start_menu = Path(os.environ.get("APPDATA", "")) / r"Microsoft\Windows\Start Menu\Programs\Lumen.lnk"
+    app_id = APP_USER_MODEL_ID if start_menu.is_file() else \
+        r"{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe"
+    env = dict(os.environ, TOAST_TITLE=title, TOAST_BODY=body[:200], TOAST_APP=app_id)
     subprocess.Popen(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", TOAST_PS],
                      env=env, creationflags=NO_WINDOW, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -1091,6 +1244,118 @@ def clean_titlebar():
                                                   ctypes.byref(opts), ctypes.sizeof(opts))
 
 
+def bring_to_front():
+    """Muestra la ventana (también si estaba en la bandeja) y la pone delante."""
+    if WINDOW is None:
+        return
+    try:
+        WINDOW.show()
+        WINDOW.restore()
+        hwnd = window_handle()
+        if hwnd:
+            ctypes.windll.user32.SetForegroundWindow(ctypes.c_void_p(hwnd))
+    except Exception:
+        pass
+
+
+# ---------- abrir enlaces desde el navegador (lumen://) ----------
+# Un marcador del navegador abre lumen://open?url=<enlace>; Windows lanza
+# Lumen.exe con ese argumento. Si ya hay una copia abierta, se le pasa el
+# enlace por su servidor local (DATA/instance.json dice en qué puerto está).
+
+INSTANCE_FILE = DATA / "instance.json"
+
+
+def register_protocol():
+    """Registra lumen:// para el usuario actual (sin permisos de administrador)."""
+    if os.name != "nt" or not getattr(sys, "frozen", False):
+        return
+    import winreg
+    exe = sys.executable
+    base = r"Software\Classes\lumen"
+    try:
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, base) as k:
+            winreg.SetValueEx(k, "", 0, winreg.REG_SZ, "URL:Lumen")
+            winreg.SetValueEx(k, "URL Protocol", 0, winreg.REG_SZ, "")
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, base + r"\DefaultIcon") as k:
+            winreg.SetValueEx(k, "", 0, winreg.REG_SZ, f'"{exe}",0')
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, base + r"\shell\open\command") as k:
+            winreg.SetValueEx(k, "", 0, winreg.REG_SZ, f'"{exe}" "%1"')
+    except OSError:
+        pass
+
+
+def url_from_args(argv):
+    """El enlace que traen los argumentos: lumen://open?url=..., lumen://<enlace> o un enlace normal."""
+    for arg in argv[1:]:
+        if arg.lower().startswith("lumen:"):
+            parsed = urlparse(arg)
+            target = parse_qs(parsed.query).get("url", [None])[0]
+            if not target:
+                target = urllib.parse.unquote(re.sub(r"^lumen:/*", "", arg, flags=re.I))
+            if re.match(r"https?://", target or "", re.I):
+                return target
+        elif re.match(r"https?://", arg, re.I):
+            return arg
+    return None
+
+
+def forward_to_running(url):
+    """Si ya hay un Lumen abierto (aunque esté en la bandeja), le pasa el enlace o
+    solo le pide que se muestre. True si respondió."""
+    try:
+        port = json.loads(INSTANCE_FILE.read_text())["port"]
+        req = urllib.request.Request(f"http://{HOST}:{port}/api/incoming", data=json.dumps({"url": url}).encode(),
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=3) as r:
+            ok = r.status == 200
+        if ok and os.name == "nt":
+            ctypes.windll.user32.AllowSetForegroundWindow(-1)  # que la otra copia pueda ponerse delante
+        return ok
+    except Exception:
+        return False
+
+
+# ---------- bandeja del sistema ----------
+# Al cerrar la ventana con descargas en curso, Lumen sigue en la bandeja.
+
+tray = {"icon": None, "quitting": False}
+
+
+def ensure_tray():
+    if tray["icon"]:
+        return tray["icon"]
+    import pystray
+    from PIL import Image
+
+    def quit_app(icon, _item):
+        tray["quitting"] = True
+        icon.stop()
+        WINDOW.destroy()
+
+    menu = pystray.Menu(pystray.MenuItem(tr("Abrir Lumen"), lambda *_: bring_to_front(), default=True),
+                        pystray.MenuItem(tr("Salir"), quit_app))
+    tray["icon"] = pystray.Icon("Lumen", Image.open(WEB / "icon.png"), "Lumen", menu)
+    tray["icon"].run_detached()
+    return tray["icon"]
+
+
+def on_closing():
+    """Devuelve False para que la ventana no se cierre y siga en la bandeja."""
+    busy = any(j["status"] in ACTIVE and j["status"] != "paused" for j in list(jobs.values()))
+    if tray["quitting"] or not busy or not settings.get("tray", True):
+        if tray["icon"]:
+            tray["icon"].stop()
+        return True
+    try:
+        ensure_tray()
+    except Exception:
+        return True  # sin bandeja disponible: se cierra como siempre
+    WINDOW.hide()
+    notify("Lumen", tr("Lumen sigue descargando en segundo plano. Ábrelo desde el icono de la bandeja."))
+    return False
+
+
 class WindowApi:
     """Funciones que la página puede llamar con window.pywebview.api.*"""
 
@@ -1105,14 +1370,71 @@ def ytdlp_version():
     return yt_dlp.version.__version__
 
 
+# ---------- actualizaciones ----------
+# yt-dlp: se descarga su versión "zipapp" oficial a %APPDATA%\Lumen\ytdlp, se
+# comprueba con la lista SHA2-256SUMS de la misma versión y se usa al
+# siguiente arranque (_import_ytdlp). Lumen: solo se avisa de que hay versión nueva.
+
+updates = {"lumen": None, "ytdlp_ready": None, "checked": False}
+update_lock = threading.Lock()
+
+
+def github_latest(repo):
+    req = urllib.request.Request(f"https://api.github.com/repos/{repo}/releases/latest",
+                                 headers={"User-Agent": "Lumen", "Accept": "application/vnd.github+json"})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        return json.loads(r.read())
+
+
+def fetch(url, timeout=60):
+    with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "Lumen"}), timeout=timeout) as r:
+        return r.read()
+
+
 def update_ytdlp():
-    if getattr(sys, "frozen", False):
-        return {"ok": False, "error": "En la versión .exe, descarga la última versión del programa para actualizar yt-dlp."}
-    out = subprocess.run([sys.executable, "-m", "pip", "install", "-U", "yt-dlp"],
-                         capture_output=True, text=True, creationflags=NO_WINDOW)
-    ver = subprocess.run([sys.executable, "-c", "import yt_dlp; print(yt_dlp.version.__version__)"],
-                         capture_output=True, text=True, creationflags=NO_WINDOW).stdout.strip()
-    return {"ok": out.returncode == 0, "version": ver, "restart": ver != ytdlp_version()}
+    """Descarga el yt-dlp más reciente si es más nuevo que el que está en uso."""
+    with update_lock:
+        rel = github_latest("yt-dlp/yt-dlp")
+        latest = rel["tag_name"]
+        pending = updates["ytdlp_ready"]
+        if version_tuple(latest) <= version_tuple(pending or ytdlp_version()):
+            return {"ok": True, "version": pending or ytdlp_version(), "restart": bool(pending)}
+        assets = {a["name"]: a["browser_download_url"] for a in rel["assets"]}
+        data = fetch(assets["yt-dlp"])
+        sums = fetch(assets["SHA2-256SUMS"]).decode()
+        import hashlib
+        expected = next((ln.split()[0] for ln in sums.splitlines() if ln.split()[-1:] == ["yt-dlp"]), None)
+        if not expected or hashlib.sha256(data).hexdigest() != expected.lower():
+            raise ValueError("La descarga de yt-dlp no superó la comprobación de integridad.")
+        YTDLP_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = YTDLP_DIR / "yt-dlp.zip.tmp"
+        tmp.write_bytes(data)
+        os.replace(tmp, YTDLP_DIR / "yt-dlp.zip")
+        (YTDLP_DIR / "version.txt").write_text(latest)
+        updates["ytdlp_ready"] = latest
+        return {"ok": True, "version": latest, "restart": True}
+
+
+def check_lumen_update():
+    rel = github_latest(GITHUB_REPO)
+    if version_tuple(rel["tag_name"]) > version_tuple(APP_VERSION):
+        updates["lumen"] = {"version": rel["tag_name"].lstrip("v"), "url": rel["html_url"]}
+
+
+def background_updates():
+    """Una vez al día: avisa si hay un Lumen nuevo y deja listo el yt-dlp más reciente."""
+    if time.time() - float(settings.get("last_update_check") or 0) < 20 * 3600:
+        updates["checked"] = True
+        return
+    try:
+        check_lumen_update()
+        if settings.get("auto_update", True):
+            update_ytdlp()
+        save_settings({"last_update_check": time.time()})
+    except Exception:
+        pass  # sin conexión o GitHub no responde: se intentará otro día
+    finally:
+        updates["checked"] = True
 
 
 # ---------- servidor HTTP ----------
@@ -1223,12 +1545,19 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/config":
             return self.send_json({"settings": settings, "version": ytdlp_version(),
                                    "ffmpeg": bool(shutil.which("ffmpeg")), "window": WINDOW is not None,
-                                   "frozen": getattr(sys, "frozen", False), "lang": ui_lang()})
+                                   "frozen": getattr(sys, "frozen", False), "lang": ui_lang(),
+                                   "app_version": APP_VERSION, "ytdlp_updated": YTDLP_UPDATED})
         if path == "/api/jobs":
             ui["last_seen"] = time.time()
             with jobs_lock:
-                items = sorted(jobs.values(), key=lambda j: j["created"], reverse=True)
+                items = sorted(jobs.values(), key=job_sort_key)
             return self.send_json([public(j) for j in items])
+        if path == "/api/events":
+            # lo que la página debe enterarse sin pedirlo: enlaces abiertos desde el
+            # navegador (lumen://) y avisos de actualización
+            with incoming_lock:
+                urls, incoming[:] = incoming[:], []
+            return self.send_json({"urls": urls, "updates": updates})
         if path == "/api/clipboard":
             text = read_clipboard() if settings["clipboard"] else ""
             return self.send_json({"urls": list(dict.fromkeys(URL_RE.findall(text)))[:50]})
@@ -1277,9 +1606,27 @@ class Handler(BaseHTTPRequestHandler):
             return {"mode": "none" if not stream else "split" if "a" in stream else "muxed"}
         if p == "/api/clip-preview":
             return clip_preview(data["key"], data["start"], data["end"])
-        if p == "/api/cancel":
-            if data.get("id") in jobs:
-                jobs[data["id"]]["cancel"] = True
+        if p in ("/api/cancel", "/api/pause", "/api/resume", "/api/move"):
+            job = jobs.get(data.get("id"))
+            if job:
+                if p == "/api/cancel":
+                    cancel_job(job)
+                elif p == "/api/pause":
+                    pause_job(job)
+                elif p == "/api/resume":
+                    resume_job(job)
+                else:
+                    move_job(job, -1 if data.get("dir") == "up" else 1)
+            return {"ok": True}
+        if p == "/api/incoming":  # otra copia de Lumen (abierta con lumen:// o desde el menú Inicio)
+            if data.get("url"):
+                push_incoming(data["url"])
+            else:
+                bring_to_front()
+            return {"ok": True}
+        if p == "/api/open-release":
+            if updates.get("lumen"):
+                webbrowser.open(updates["lumen"]["url"])
             return {"ok": True}
         if p == "/api/remove":
             with jobs_lock:
@@ -1316,7 +1663,7 @@ class Handler(BaseHTTPRequestHandler):
             ui["focused"] = bool(data.get("focused"))
             return {"ok": True}
         if p == "/api/update":
-            return update_ytdlp()
+            return update_ytdlp() | {"lumen": (check_lumen_update(), updates["lumen"])[1]}
         raise ValueError("No encontrado")
 
 
@@ -1339,8 +1686,13 @@ def idle_watchdog():
 
 
 def main():
+    opened_with = url_from_args(sys.argv)
+    if "--port" not in sys.argv and forward_to_running(opened_with):
+        return  # ya había un Lumen abierto: se muestra y se encarga del enlace
+    register_protocol()
     load_history()
     threading.Thread(target=warm_up, daemon=True).start()
+    threading.Thread(target=background_updates, daemon=True).start()
     first = int(sys.argv[sys.argv.index("--port") + 1]) if "--port" in sys.argv else 8765
     for port in range(first, first + 20):
         try:
@@ -1352,6 +1704,12 @@ def main():
         sys.exit(f"No hay puertos libres entre {first} y {first + 19}.")
     url = f"http://{HOST}:{port}"
     threading.Thread(target=server.serve_forever, daemon=True).start()
+    if "--port" not in sys.argv:  # las copias de prueba en otros puertos no reciben enlaces
+        write_json(INSTANCE_FILE, {"port": port, "pid": os.getpid()})
+        atexit.register(lambda: INSTANCE_FILE.unlink(missing_ok=True)
+                        if read_json(INSTANCE_FILE, {}).get("pid") == os.getpid() else None)
+    if opened_with:
+        push_incoming(opened_with)
 
     if "--browser" not in sys.argv and "--no-browser" not in sys.argv:
         try:
@@ -1362,13 +1720,14 @@ def main():
             global WINDOW
             if os.name == "nt":
                 # identidad propia en la barra de tareas (si no, Windows la agrupa con Python)
-                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("lumen.downloader")
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
             theme = settings.get("theme")
             dark = theme == "dark" or (theme != "light" and windows_dark_mode())
             WINDOW = webview.create_window(APP_NAME, url, width=1120, height=880, js_api=WindowApi(), hidden=True,
                                            min_size=(440, 620), background_color="#000000" if dark else "#f2f1ef")
             # por si la página no llega a avisar (error de carga), la mostramos igual
             WINDOW.events.loaded += lambda: threading.Timer(4, show_window).start()
+            WINDOW.events.closing += on_closing
             webview.start()
             return
 

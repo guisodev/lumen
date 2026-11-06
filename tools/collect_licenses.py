@@ -19,7 +19,7 @@ OUT = ROOT / "licenses" / "python"
 PACKAGES = [
     "yt-dlp", "yt-dlp-ejs", "pywebview", "pythonnet", "clr_loader", "cffi", "pycparser",
     "bottle", "proxy_tools", "certifi", "packaging", "setuptools", "typing_extensions", "pyinstaller",
-    "curl_cffi", "mutagen",
+    "curl_cffi", "mutagen", "pystray", "six", "pillow",
 ]
 LICENSE_WORDS = ("license", "licence", "copying", "notice", "authors")
 

@@ -45,6 +45,9 @@ FFmpeg se ejecuta como programa aparte; Lumen no lo modifica ni se enlaza con é
 | certifi | 2026.10.23 | MPL-2.0 (<https://github.com/certifi/python-certifi>) |
 | curl_cffi | 0.17.0 | MIT (<https://github.com/lexiforest/curl_cffi>); incluye libcurl-impersonate (licencia de curl) y BoringSSL (licencia OpenSSL/ISC) |
 | mutagen | 1.48.1 | **GPL-2.0-or-later** (<https://github.com/quodlibet/mutagen>) |
+| pystray | 0.19.5 | LGPL-3.0 (<https://github.com/moses-palmer/pystray>); icono de la bandeja del sistema, se usa sin modificar y se puede sustituir en `_internal/pystray` |
+| Pillow | 13.0.0 | MIT-CMU (<https://github.com/python-pillow/Pillow>) |
+| six | 1.17.0 | MIT |
 | packaging | 26.1 | Apache-2.0 o BSD-2-Clause |
 | setuptools | 84.2.1 | MIT |
 | typing_extensions | 4.15.0 | PSF-2.0 |

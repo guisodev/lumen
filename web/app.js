@@ -2,7 +2,7 @@
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
-const ACTIVE = ['queued', 'starting', 'downloading', 'processing'];
+const ACTIVE = ['queued', 'starting', 'downloading', 'processing', 'paused']; // aún no terminadas
 const URL_RE = /https?:\/\/[^\s<>"']+/gi;
 
 const state = {
@@ -16,6 +16,10 @@ const state = {
 };
 
 const ICONS = {
+  pause: '<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>',
+  resume: '<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
+  up: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 15 6-6 6 6"/></svg>',
+  down: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
   folder: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
   stop: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
   retry: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>',
@@ -241,8 +245,12 @@ async function loadConfig() {
   $('#sClipboard').checked = !!s.clipboard;
   $('#sAmbient').checked = s.ambient !== false;
   $('#sLang').value = s.lang || 'auto';
-  $('#sVersion').textContent = 'yt-dlp ' + cfg.version;
-  $('#update').classList.toggle('hidden', !!cfg.frozen);
+  $('#sVersion').textContent = `Lumen ${cfg.app_version} · yt-dlp ${cfg.version}`;
+  $('#sMp3').value = String(s.mp3_quality || '0');
+  $('#sTray').checked = s.tray !== false;
+  $('#sAutoUpdate').checked = s.auto_update !== false;
+  $('#bmCode').textContent = BOOKMARKLET;
+  $('#bmNote').classList.toggle('hidden', !!cfg.frozen);
   templateHint();
   initSegs();
 }
@@ -295,7 +303,8 @@ async function analyze() {
     const info = await api('/api/info', { url });
     state.lastAnalyzed = url;
     showSkeleton(false);
-    if (info.type === 'playlist') showPlaylist(info); else showVideo(info);
+    if (info.type === 'search') showSearch(info);
+    else if (info.type === 'playlist') showPlaylist(info); else showVideo(info);
   } catch (e) {
     showSkeleton(false);
     shake($('#urlCard'));
@@ -386,6 +395,9 @@ function showVideo(info) {
   const canClip = !!info.duration && !info.is_live;
   $('#clipWrap').classList.toggle('hidden', !canClip);
   $('#clipOn').checked = false;
+  $('#chapWrap').classList.toggle('hidden', !info.chapters);
+  $('#chapOn').checked = false;
+  $('#chapText').textContent = t('Dividir en {n} capítulos', { n: info.chapters });
   $('#clipBody').classList.add('hidden');
   if (canClip) {
     setupClip(info.duration);
@@ -506,8 +518,10 @@ function renderQualities(qualities) {
 function renderAudioFormats(info) {
   const dur = info?.duration;
   const src = info?.audio?.size;
-  const est = { mp3: dur && dur * 245000 / 8, m4a: src, opus: src };
-  $('#afmt').innerHTML = ['mp3', 'm4a', 'opus'].map((f) =>
+  const mp3kbps = { 0: 245, 320: 320, 256: 256, 192: 192, 128: 128 }[state.settings.mp3_quality || '0'] || 245;
+  const est = { mp3: dur && dur * mp3kbps * 1000 / 8, m4a: src, opus: src,
+    flac: dur && dur * 900000 / 8, wav: dur && dur * 1411200 / 8 }; // FLAC y WAV: aproximado, sin pérdida
+  $('#afmt').innerHTML = ['mp3', 'm4a', 'opus', 'flac', 'wav'].map((f) =>
     `<button class="chip" data-v="${f}"><b>${f.toUpperCase()}</b>${est[f] ? `<small>~${fmtBytes(est[f])}</small>` : ''}</button>`).join('');
   selectChip('#afmt', state.settings.audio_format || 'mp3');
 }
@@ -545,6 +559,7 @@ for (const id of ['#tStart', '#tEnd']) {
 }
 $('#clipOn').addEventListener('change', async () => {
   $('#clipBody').classList.toggle('hidden', !$('#clipOn').checked);
+  $('#chapWrap').classList.toggle('off', $('#clipOn').checked); // un fragmento no se divide en capítulos
   updateDownloadLabel();
   if (!$('#clipOn').checked) return stopPreview();
   // precargamos el video oculto para que el primer fotograma también sea instantáneo
@@ -974,6 +989,7 @@ function currentOptions() {
   return {
     mode: currentMode(), quality: chipValue('#quality') || 'best', audio_format: chipValue('#afmt') || 'mp3',
     meta: $('#meta').checked, subs: $('#subs').checked, folder: $('#folder').textContent,
+    chapters: !$('#chapWrap').classList.contains('hidden') && $('#chapOn').checked && !$('#clipOn').checked,
   };
 }
 
@@ -1158,6 +1174,7 @@ function statusText(j) {
     case 'processing': return t(j.stage) + '…';
     case 'done': return t('Listo') + (j.finished ? ' · ' + fmtWhen(j.finished) : '');
     case 'cancelled': return t('Cancelado');
+    case 'paused': return t('En pausa') + (j.progress ? ` · ${Math.floor(j.progress)}%` : '');
     case 'error': return t(j.error || 'La descarga falló');
   }
   return j.status;
@@ -1181,8 +1198,13 @@ function subText(j) {
   return bits.join(' · ');
 }
 
-function jobActions(j) {
-  if (ACTIVE.includes(j.status)) return `<button class="icon-btn" data-a="cancel" title="${t('Cancelar')}">${ICONS.stop}</button>`;
+function jobActions(j, pos) {
+  const btn = (a, icon, title, off = false) => `<button class="icon-btn" data-a="${a}" title="${t(title)}"${off ? ' disabled' : ''}>${ICONS[icon]}</button>`;
+  const cancel = btn('cancel', 'stop', 'Cancelar');
+  if (j.status === 'queued') return btn('up', 'up', 'Subir en la cola', pos.first) + btn('down', 'down', 'Bajar en la cola', pos.last) + btn('pause', 'pause', 'Pausar') + cancel;
+  if (j.status === 'paused') return btn('resume', 'resume', 'Reanudar') + cancel;
+  if (j.status === 'starting' || j.status === 'downloading') return btn('pause', 'pause', 'Pausar') + cancel;
+  if (ACTIVE.includes(j.status)) return cancel;
   return (j.status !== 'done' ? `<button class="icon-btn" data-a="retry" title="${t('Reintentar')}">${ICONS.retry}</button>` : '')
     + `<button class="icon-btn" data-a="reveal" title="${t('Mostrar en la carpeta')}">${ICONS.folder}</button>`
     + `<button class="icon-btn" data-a="remove" title="${t('Quitar del historial')}">${ICONS.trash}</button>`;
@@ -1191,6 +1213,9 @@ function jobActions(j) {
 async function jobAction(j, a) {
   try {
     if (a === 'cancel') await api('/api/cancel', { id: j.id });
+    if (a === 'pause') await api('/api/pause', { id: j.id });
+    if (a === 'resume') await api('/api/resume', { id: j.id });
+    if (a === 'up' || a === 'down') await api('/api/move', { id: j.id, dir: a });
     if (a === 'reveal') await api('/api/reveal', { id: j.id });
     if (a === 'remove') {
       const el = nodes.get(j.id);
@@ -1277,8 +1302,10 @@ function renderJobs(all) {
     $('.st', el).title = j.raw_error || st;
     $('.nums', el).textContent = numsText(j);
     const act = $('.jact', el);
-    const key = ACTIVE.includes(j.status) ? 'active' : j.status;
-    if (act.dataset.k !== key) { act.dataset.k = key; act.innerHTML = jobActions(j); }
+    const queue = list.filter((q) => q.status === 'queued');
+    const pos = { first: queue[0] === j, last: queue[queue.length - 1] === j };
+    const key = `${j.status}:${pos.first}:${pos.last}`;
+    if (act.dataset.k !== key) { act.dataset.k = key; act.innerHTML = jobActions(j, pos); }
   });
   for (const [id, el] of nodes) if (!seen.has(id)) { el.remove(); nodes.delete(id); }
   if (before) {
@@ -1316,6 +1343,7 @@ async function poll() {
   clearTimeout(pollTimer);
   try {
     const list = await api('/api/jobs');
+    handleEvents(await api('/api/events'));
     notifyTransitions(list);
     const active = renderJobs(list);
     pollTimer = setTimeout(poll, active ? 600 : 3000);
@@ -1323,6 +1351,70 @@ async function poll() {
     pollTimer = setTimeout(poll, 3000);
   }
 }
+
+// Avisos del servidor: enlaces abiertos desde el navegador (lumen://) y actualizaciones
+function handleEvents(ev) {
+  for (const url of ev.urls || []) {
+    toast(t('Enlace recibido del navegador'));
+    $('#url').value = url;
+    analyze();
+  }
+  const u = ev.updates || {};
+  if (u.lumen && state.dismissedUpdate !== u.lumen.version && $('#updateBanner').classList.contains('hidden')) {
+    $('#updateText').textContent = t('Lumen {v} está disponible', { v: u.lumen.version });
+    $('#updateBanner').classList.remove('hidden');
+  }
+  if (u.ytdlp_ready && state.ytdlpNotified !== u.ytdlp_ready) {
+    state.ytdlpNotified = u.ytdlp_ready;
+    toast(t('yt-dlp {v} descargado: se usará la próxima vez que abras Lumen', { v: u.ytdlp_ready }));
+  }
+}
+$('#updateGet').addEventListener('click', () => api('/api/open-release', {}).catch(() => {}));
+$('#updateClose').addEventListener('click', () => {
+  state.dismissedUpdate = $('#updateText').textContent;
+  $('#updateBanner').classList.add('hidden');
+});
+
+/* ---------- búsqueda ---------- */
+
+function showSearch(info) {
+  state.info = info; state.bulk = null;
+  openPanel('search');
+  setHeader({ title: t('Resultados para «{q}»', { q: info.query }), thumbnail: info.thumbnail,
+    sub: [t('Elige un video para ver sus opciones')] });
+  ambientFromThumb(info.thumbnail);
+  $('#entries').innerHTML = info.entries.map((e) => `
+    <button type="button" class="entry result" data-url="${esc(e.url)}">
+      ${e.thumbnail ? `<img loading="lazy" src="${esc(e.thumbnail)}" alt="">` : '<span class="ph"></span>'}
+      <span class="t" title="${esc(e.title)}">${esc(e.title)}</span>
+      <span class="d">${[esc(e.uploader || ''), fmtTime(e.duration)].filter(Boolean).join(' · ')}</span>
+    </button>`).join('');
+  $('#selCount').textContent = t('{n} resultados', { n: info.count });
+  $$('#selAll, #selNone').forEach((b) => b.classList.add('hidden'));
+  $('#entriesBox').classList.remove('hidden');
+  revealPanel();
+  $$('#entries .entry').forEach((el, i) => animateIn(el, 120 + i * 30, 8));
+}
+$('#entries').addEventListener('click', (e) => {
+  const r = e.target.closest('.entry.result');
+  if (!r) return;
+  $('#url').value = r.dataset.url;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  analyze();
+});
+
+/* ---------- descargar desde el navegador ---------- */
+
+const BOOKMARKLET = "javascript:location.href='lumen://open?url='+encodeURIComponent(location.href)";
+$('#bmCopy').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(BOOKMARKLET);
+    toast(t('Copiado. Ahora crea un marcador y pégalo como dirección.'));
+  } catch {
+    getSelection().selectAllChildren($('#bmCode'));
+    toast(t('Selecciónalo y cópialo con Ctrl+C'));
+  }
+});
 
 $('#search').addEventListener('input', (e) => { state.search = e.target.value; poll(); });
 $('#clear').addEventListener('click', async () => {
@@ -1426,6 +1518,12 @@ $('#sLang').addEventListener('change', async (e) => {
   location.reload(); // los textos fijos se traducen al cargar
 });
 $('#sRate').addEventListener('change', (e) => saveSetting({ ratelimit: Math.max(0, +e.target.value || 0) }));
+$('#sMp3').addEventListener('change', (e) => {
+  saveSetting({ mp3_quality: e.target.value });
+  if (state.info?.type === 'video') renderAudioFormats(state.info); // el tamaño estimado cambia
+});
+$('#sTray').addEventListener('change', (e) => saveSetting({ tray: e.target.checked }));
+$('#sAutoUpdate').addEventListener('change', (e) => saveSetting({ auto_update: e.target.checked }));
 $('#sTemplate').addEventListener('change', (e) => { templateHint(); saveSetting({ template: e.target.value }); });
 $('#sCustom').addEventListener('change', (e) => saveSetting({ custom_template: e.target.value }));
 $('#sCookies').addEventListener('change', (e) => saveSetting({ cookies: e.target.value }));
@@ -1443,6 +1541,7 @@ $('#update').addEventListener('click', async () => {
     if (!r.ok) toast(r.error || 'No se pudo actualizar yt-dlp', true);
     else if (r.restart) toast(t('Actualizado a {v}. Cierra y vuelve a abrir el programa para usarlo.', { v: r.version }));
     else toast('yt-dlp ya está en la última versión');
+    if (r.lumen) handleEvents({ updates: { lumen: r.lumen } });
   } catch (e) { toast(e.message, true); }
   b.disabled = false; b.textContent = t('Buscar actualización');
 });
