@@ -670,13 +670,19 @@ def build_opts(job):
     if job["kind"] == "playlist":
         name = os.path.join("%(playlist_title)s", "%(playlist_index)03d - " + name)
 
+    # Cada descarga trabaja en su propia carpeta temporal y solo el resultado
+    # final se mueve a la carpeta del usuario: así un archivo intermedio con el
+    # mismo nombre (p. ej. un .mp3 de origen al convertir a .m4a) nunca puede
+    # pisar ni borrar algo que el usuario ya tenía.
+    job["_tmp"] = tempfile.mkdtemp(prefix="lumen-job-")
+    job["_home"] = folder
     opts = base_opts() | {
-        "paths": {"home": folder},
+        "paths": {"home": folder, "temp": job["_tmp"]},
         "outtmpl": name + ".%(ext)s",
         "windowsfilenames": True,
         # ffmpeg falla con rutas de más de 260 caracteres en Windows: recortamos
         # el nombre dejando margen para sufijos temporales (.f137.mp4.part, .temp…)
-        "trim_file_name": max(30, 230 - len(folder)),
+        "trim_file_name": max(30, 230 - max(len(folder), len(job["_tmp"]))),
         "concurrent_fragment_downloads": 4,
         "ignoreerrors": "only_download" if job["kind"] == "playlist" else False,
         "progress_hooks": [lambda d: progress_hook(job, d)],
@@ -699,8 +705,13 @@ def build_opts(job):
         # recodificar a AAC con ffmpeg es lento y pierde calidad.
         native = {"m4a": "ba[ext=m4a]/", "opus": "ba[acodec=opus]/"}.get(fmt, "")
         opts["format"] = native + "bestaudio/best"
+        if re.search(r"(^|\.)tiktok\.com/", urlparse(job["url"]).netloc + "/"):
+            # El formato "audio" de TikTok es la pista musical asociada, no lo
+            # que suena en el video (voces incluidas): sacamos el audio del video.
+            opts["format"] = "best"
         pps.append({"key": "FFmpegExtractAudio", "preferredcodec": fmt, "preferredquality": "0"})
-        if fmt == "opus":  # incrustar portada en opus requiere mutagen
+        if fmt in ("m4a", "opus") and not yt_dlp.dependencies.mutagen:
+            # sin mutagen la portada se incrusta con ffmpeg, que falla en .m4a/.opus
             embed_thumb = False
     else:
         q = str(o.get("quality") or "best")
@@ -801,9 +812,12 @@ def pp_hook(job, d):
                    stage=PP_LABELS.get(d.get("postprocessor"), "Procesando"))
         set_overall(job, item_number(job, info), 0.98)
     elif d["status"] == "finished" and info.get("filepath"):
-        job["filepath"] = info["filepath"]
-        if job["kind"] == "playlist":
-            job["filepath"] = os.path.dirname(info["filepath"])
+        path = info["filepath"]
+        tmp, home = job.get("_tmp"), job.get("_home")
+        if tmp and home and os.path.normcase(path).startswith(os.path.normcase(tmp)):
+            # el procesado ocurre en la carpeta temporal; al final se mueve aquí
+            path = os.path.join(home, os.path.relpath(path, tmp))
+        job["filepath"] = os.path.dirname(path) if job["kind"] == "playlist" else path
 
 
 def run_job(job):
@@ -833,6 +847,8 @@ def run_job(job):
             job.update(error=friendly(raw), raw_error=raw)
     finally:
         slots.release()
+        if job.get("_tmp"):
+            shutil.rmtree(job.pop("_tmp"), ignore_errors=True)
         job.update(speed=None, eta=None, finished=time.time())
         save_history()
         if job["status"] in ("done", "error") and settings["notify"] and not ui["focused"]:

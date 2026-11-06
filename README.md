@@ -59,7 +59,7 @@ In `%APPDATA%\Lumen`. Deleting that folder resets Lumen.
 You need Python 3.12 or later on Windows.
 
 ```bash
-python -m pip install -U yt-dlp yt-dlp-ejs pywebview pyinstaller
+python -m pip install -U "yt-dlp[curl-cffi]" yt-dlp-ejs mutagen pywebview pyinstaller
 ```
 
 To try it without building: `python app.py` (or double-click `Abrir Lumen.bat`).
@@ -90,7 +90,8 @@ and the English text its value.
 Lumen’s source code is released under the [MIT license](LICENSE).
 
 `Lumen.exe` bundles third-party software under its own licenses, including
-**FFmpeg (GPLv3)**, deno (MIT) and yt-dlp (Unlicense). The full list, with links
+**FFmpeg (GPLv3)**, **mutagen (GPLv2+)**, deno (MIT) and yt-dlp (Unlicense), so the distributed
+`Lumen.exe` as a whole is subject to the GNU GPL. The full list, with links
 to the source code, is in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) and
 the license texts are in [licenses/](licenses).
 

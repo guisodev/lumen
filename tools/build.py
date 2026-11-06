@@ -3,7 +3,7 @@
 Uso:  python tools/build.py
 
 Necesita (una sola vez):
-  python -m pip install -U pyinstaller yt-dlp yt-dlp-ejs pywebview
+  python -m pip install -U pyinstaller "yt-dlp[curl-cffi]" yt-dlp-ejs mutagen pywebview
   vendor/ffmpeg/   ffmpeg.exe, ffprobe.exe y sus .dll
                    (ffmpeg-master-latest-win64-gpl-shared.zip de github.com/yt-dlp/FFmpeg-Builds)
   vendor/deno/     deno.exe (deno-x86_64-pc-windows-msvc.zip de github.com/denoland/deno)
@@ -41,6 +41,8 @@ def main():
         "--icon", str(ROOT / "web" / "icon.ico"),
         "--add-data", f"{ROOT / 'web'}{sep}web",
         "--collect-all", "yt_dlp_ejs",  # scripts que yt-dlp ejecuta con deno
+        "--collect-all", "curl_cffi",   # se hace pasar por un navegador (TikTok y otros lo exigen)
+        "--collect-all", "mutagen",     # portadas en .m4a y .opus
         "--distpath", str(DIST),
         "--workpath", str(ROOT / "build"),
         "--specpath", str(ROOT / "build"),

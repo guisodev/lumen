@@ -42,13 +42,24 @@ FFmpeg se ejecuta como programa aparte; Lumen no lo modifica ni se enlaza con é
 | pycparser | 3.12 | BSD-3-Clause |
 | bottle | 0.13.4 | MIT |
 | proxy_tools | 0.1.0 | MIT (<https://github.com/jtushman/proxy_tools>) |
-| certifi | 2026.2.25 | MPL-2.0 (<https://github.com/certifi/python-certifi>) |
+| certifi | 2026.10.23 | MPL-2.0 (<https://github.com/certifi/python-certifi>) |
+| curl_cffi | 0.17.0 | MIT (<https://github.com/lexiforest/curl_cffi>); incluye libcurl-impersonate (licencia de curl) y BoringSSL (licencia OpenSSL/ISC) |
+| mutagen | 1.48.1 | **GPL-2.0-or-later** (<https://github.com/quodlibet/mutagen>) |
 | packaging | 26.1 | Apache-2.0 o BSD-2-Clause |
 | setuptools | 84.2.1 | MIT |
 | typing_extensions | 4.15.0 | PSF-2.0 |
 | PyInstaller (arrancador) | 6.22.3 | GPLv2 con excepción para el arrancador, que permite distribuir el programa empaquetado con cualquier licencia |
 
 Los textos de estas licencias están en `licenses/python/`.
+
+### Sobre la GPL de mutagen
+
+mutagen (GPL versión 2 o posterior) se ejecuta dentro del mismo proceso que
+Lumen, así que **Lumen.exe, como programa combinado, se distribuye bajo las
+condiciones de la GNU GPL**. El código propio de Lumen sigue publicándose bajo la
+licencia MIT, compatible con la GPL, y todo el código fuente correspondiente está
+disponible: el de Lumen en su repositorio y el de cada componente en los enlaces
+de esta página.
 
 ## Microsoft Visual C++ Runtime
 

@@ -23,5 +23,6 @@ SOFTWARE.
 ---
 
 This license covers Lumen's own source code. Lumen.exe also bundles third-party
-software under its own licenses (including FFmpeg under the GNU GPL v3); see
-THIRD-PARTY-NOTICES.md and the licenses/ folder.
+software under its own licenses (including FFmpeg under the GNU GPL v3 and
+mutagen under the GNU GPL v2 or later), so the distributed Lumen.exe as a whole
+is subject to the GNU GPL; see THIRD-PARTY-NOTICES.md and the licenses/ folder.

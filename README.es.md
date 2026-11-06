@@ -61,7 +61,7 @@ En `%APPDATA%\Lumen`. Borrar esa carpeta deja Lumen como recién instalado.
 Necesitas Python 3.12 o posterior en Windows.
 
 ```bash
-python -m pip install -U yt-dlp yt-dlp-ejs pywebview pyinstaller
+python -m pip install -U "yt-dlp[curl-cffi]" yt-dlp-ejs mutagen pywebview pyinstaller
 ```
 
 Para probarlo sin compilar: `python app.py` (o doble clic en `Abrir Lumen.bat`).
@@ -89,7 +89,8 @@ El resultado queda en `dist/Lumen/` y comprimido en `dist/Lumen.zip`.
 El código de Lumen se publica bajo la [licencia MIT](LICENSE).
 
 `Lumen.exe` incluye programas de terceros con sus propias licencias, entre ellos
-**FFmpeg (GPLv3)**, deno (MIT) y yt-dlp (Unlicense). La lista completa, con los
+**FFmpeg (GPLv3)**, **mutagen (GPLv2+)**, deno (MIT) y yt-dlp (Unlicense), por lo que
+`Lumen.exe` en conjunto se distribuye bajo las condiciones de la GNU GPL. La lista completa, con los
 enlaces al código fuente, está en [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)
 y los textos de las licencias en [licenses/](licenses).
 
