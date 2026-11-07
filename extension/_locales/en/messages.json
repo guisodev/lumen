@@ -1,0 +1,14 @@
+{
+  "name": {
+    "message": "Lumen"
+  },
+  "description": {
+    "message": "Download videos and music with Lumen, right from YouTube or any site. Requires the Lumen app for Windows."
+  },
+  "actionTitle": {
+    "message": "Download with Lumen"
+  },
+  "contextOpen": {
+    "message": "Open in Lumen"
+  }
+}

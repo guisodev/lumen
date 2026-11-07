@@ -46,8 +46,12 @@ con los Windows 10 actualizados).
 - **Listas de reproducción**: marcas qué videos quieres.
 - **Varios enlaces a la vez**: pega un texto con varios y se ponen en cola.
 - **Cola flexible**: pausa, reanuda (sigue donde se quedó) y reordena descargas.
-- **Descarga desde el navegador**: un marcador manda a Lumen la página que estás
-  viendo.
+- **Extensión para Chrome, Edge y Brave**: un botón «Descargar» debajo de los
+  videos de YouTube muestra las calidades con su tamaño y le pasa la descarga a
+  Lumen con tus preferencias, sin salir del navegador. En cualquier otro sitio,
+  el botón de la barra hace lo mismo. Se instala desde **Ajustes → Mostrar la
+  carpeta** (Lumen la trae incluida). También hay un marcador que manda a Lumen
+  la página que estás viendo.
 - **Sigue en la bandeja del sistema** si cierras la ventana con descargas en curso.
 - **Siempre al día**: yt-dlp se actualiza solo en segundo plano, y la versión
   instalada de Lumen se actualiza con un clic (la descarga se comprueba con la

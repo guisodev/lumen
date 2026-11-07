@@ -1557,6 +1557,8 @@ $('#entries').addEventListener('click', (e) => {
 
 /* ---------- descargar desde el navegador ---------- */
 
+$('#extFolder').addEventListener('click', () => api('/api/extension-folder', {}).catch((e) => toast(e.message, 'error')));
+
 const BOOKMARKLET = "javascript:location.href='lumen://open?url='+encodeURIComponent(location.href)";
 $('#bmCopy').addEventListener('click', async () => {
   try {

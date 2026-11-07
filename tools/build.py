@@ -65,6 +65,8 @@ def main():
     for name in ("LICENSE", "THIRD-PARTY-NOTICES.md"):
         shutil.copy(ROOT / name, out / name)
     shutil.copy(ROOT / "tools" / "LEEME.txt", out / "LEEME.txt")
+    # Extensión del navegador: se instala desde Ajustes → «Mostrar la carpeta»
+    shutil.copytree(ROOT / "extension", out / "extension", dirs_exist_ok=True)
 
     if SIGNING:  # antes de comprimir, para que el .zip también lleve el .exe firmado
         sign(out / "Lumen.exe")

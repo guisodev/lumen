@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "__MSG_name__",
+  "description": "__MSG_description__",
+  "version": "1.4.0",
+  "default_locale": "en",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAiKDV5tX6lFMi9Ui/pJsYRIyWd47cbsVSgTCbxqJlZhPS3EPWlq9QekBreD35gGQtsY7Uqj0ndl7z33MCshD07OgjHInZKGDE99h32j7jz4SBdrmKgYtvHhQNAuJEboe5LMUqnvwOWt8VLnAJ2dau+ImEqeLyqEk729uiAR9Ts2ik3c6YuAJvTeMAia2sP4OfL9t7tRobVsEfp9B/Sc7o5qZq6fvGVCG4Aa76KDCu6M8c0ZTpG6MSuzQgKuF515lZRahJQ3i3Zq97p2t67w5iPAg3pNg+B0vpjeYoLKuoRhNgNq4jFTOIwFpU0MBu83ZCkeDQ4qMAHJiG9t/B76ESKQIDAQAB",
+  "permissions": ["nativeMessaging", "contextMenus", "activeTab"],
+  "background": {
+    "service_worker": "background.js",
+    "scripts": ["background.js"]
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "__MSG_actionTitle__",
+    "default_icon": { "16": "icons/16.png", "32": "icons/32.png" }
+  },
+  "icons": { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "128": "icons/128.png" },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*", "https://m.youtube.com/*"],
+      "js": ["menu.js", "youtube.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": { "id": "lumen@guisodev.github.io", "strict_min_version": "121.0" }
+  }
+}

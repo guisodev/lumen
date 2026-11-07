@@ -26,6 +26,14 @@ import urllib.parse
 import urllib.request
 from urllib.parse import parse_qs, urlparse
 
+import native_host
+
+# Si lo abrió la extensión del navegador, Lumen.exe solo hace de puente con el
+# Lumen abierto y termina; va antes de cargar yt-dlp para responder al instante.
+if __name__ == "__main__" and native_host.is_invocation(sys.argv):
+    native_host.run()
+    sys.exit(0)
+
 # En el .exe sin consola, sys.stdout/stderr son None y cualquier escritura
 # (de yt-dlp, por ejemplo) rompería: los mandamos a la nada.
 for _stream in ("stdout", "stderr"):
@@ -33,7 +41,7 @@ for _stream in ("stdout", "stderr"):
         setattr(sys, _stream, open(os.devnull, "w", encoding="utf-8"))
 
 APP_NAME = "Lumen"
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.4.0"
 GITHUB_REPO = "guisodev/lumen"
 APP_USER_MODEL_ID = "lumen.downloader"  # identidad en la barra de tareas y en los avisos (igual en installer.iss)
 DATA = Path(os.environ.get("APPDATA") or Path.home()) / "Lumen"
@@ -1385,6 +1393,7 @@ def set_window_icon():
 
 
 _window_shown = threading.Event()
+START_IN_TRAY = "--tray" in sys.argv
 
 
 def show_window(dark=None):
@@ -1399,6 +1408,14 @@ def show_window(dark=None):
     set_window_icon()  # para la barra de tareas y Alt+Tab
     clean_titlebar()
     style_titlebar(dark)
+    if START_IN_TRAY:
+        # La abrió la extensión del navegador: trabaja desde la bandeja sin
+        # quitarte la ventana del navegador. «Abrir Lumen» en la bandeja la muestra.
+        try:
+            ensure_tray()
+            return
+        except Exception:
+            pass
     WINDOW.show()
 
 
@@ -1891,6 +1908,13 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 reveal(path if path and os.path.exists(path) else job.get("folder") or data.get("folder"))
             return {"ok": True}
+        if p == "/api/extension-folder":
+            # Va junto a Lumen.exe; en el código fuente, junto a app.py
+            folder = (Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent) / "extension"
+            if not (folder / "manifest.json").is_file():
+                raise ValueError("No se encontró la carpeta de la extensión.")
+            subprocess.Popen(f'explorer /select,"{os.path.normpath(folder)}"')  # la carpeta, marcada
+            return {"ok": True}
         if p == "/api/pick-folder":
             folder = pick_folder(data.get("folder") or settings["folder"])
             if folder:
@@ -1930,6 +1954,7 @@ def main():
     if "--port" not in sys.argv and forward_to_running(opened_with):
         return  # ya había un Lumen abierto: se muestra y se encarga del enlace
     register_protocol()
+    native_host.register()
     load_history()
     if os.name == "nt":
         threading.Thread(target=_awake_worker, daemon=True).start()

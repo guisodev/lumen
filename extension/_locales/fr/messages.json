@@ -1,0 +1,14 @@
+{
+  "name": {
+    "message": "Lumen"
+  },
+  "description": {
+    "message": "Téléchargez vidéos et musique avec Lumen depuis YouTube ou n’importe quel site. Nécessite l’application Lumen pour Windows."
+  },
+  "actionTitle": {
+    "message": "Télécharger avec Lumen"
+  },
+  "contextOpen": {
+    "message": "Ouvrir dans Lumen"
+  }
+}

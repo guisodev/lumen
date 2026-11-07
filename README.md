@@ -45,8 +45,11 @@ and in up-to-date Windows 10).
 - **Several links at once**: paste a block of text with links and they’re queued.
 - **Flexible queue**: pause, resume (it continues where it left off) and reorder
   downloads.
-- **Download from the browser**: a bookmark sends the page you’re watching to
-  Lumen.
+- **Extension for Chrome, Edge and Brave**: a “Download” button under YouTube
+  videos shows each quality with its size and hands the download to Lumen with
+  your preferences, without leaving the browser. On any other site, the toolbar
+  button does the same. Install it from **Settings → Show folder** (it ships with
+  Lumen). There’s also a bookmark that sends the page you’re watching to Lumen.
 - **Keeps working in the system tray** if you close the window while downloading.
 - **Always up to date**: yt-dlp updates itself in the background, and the
   installed version of Lumen updates itself with one click (the download is
