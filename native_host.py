@@ -24,13 +24,14 @@ FIREFOX_EXTENSION_ID = "lumen@guisodev.github.io"
 
 DATA = Path(os.environ.get("APPDATA") or Path.home()) / "Lumen"
 INSTANCE_FILE = DATA / "instance.json"
+EXTENSION_FILE = DATA / "extension.json"  # en qué navegadores está instalada la extensión
 OPTION_KEYS = ("mode", "quality", "audio_format", "meta", "subs", "folder", "chapters",
                "video_format", "sub_lang", "sub_auto")
 
 
 def is_invocation(argv):
     """Chrome/Edge pasan «chrome-extension://<id>/»; Firefox, la ruta del manifiesto y el id."""
-    return any(a.startswith("chrome-extension://") or a.endswith(HOST_NAME + ".json") or a == FIREFOX_EXTENSION_ID
+    return any(a.startswith("chrome-extension://") or (a.endswith(".json") and HOST_NAME in os.path.basename(a)) or a == FIREFOX_EXTENSION_ID
                for a in argv[1:])
 
 
@@ -165,6 +166,21 @@ def handle(msg):
     cmd = msg.get("cmd")
     if cmd == "ping":
         port = ensure_lumen(launch=False)
+        return {"ok": True, "running": bool(port)}
+    if cmd == "hello":  # la extensión arrancó: Lumen lo muestra en Ajustes («Instalada en Edge»)
+        try:
+            seen = json.loads(EXTENSION_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            seen = {}
+        name = str(msg.get("browser") or "Navegador")[:40]
+        seen[name] = {"version": str(msg.get("version") or "")[:20], "at": time.time()}
+        DATA.mkdir(parents=True, exist_ok=True)
+        EXTENSION_FILE.write_text(json.dumps(seen, ensure_ascii=False), encoding="utf-8")
+        return {"ok": True}
+    if cmd == "warm":  # se abrió un video: si Lumen ya está abierto, que lo vaya analizando (nunca lo abre)
+        port = ensure_lumen(launch=False)
+        if port:
+            _call(port, "/api/prefetch", {"url": msg["url"]}, timeout=10)
         return {"ok": True, "running": bool(port)}
     if cmd == "prefetch":  # al pasar el ratón por el botón: el análisis empieza antes del clic
         port = ensure_lumen()

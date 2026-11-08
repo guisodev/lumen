@@ -41,7 +41,7 @@ for _stream in ("stdout", "stderr"):
         setattr(sys, _stream, open(os.devnull, "w", encoding="utf-8"))
 
 APP_NAME = "Lumen"
-APP_VERSION = "1.4.0"
+APP_VERSION = "1.5.0"
 GITHUB_REPO = "guisodev/lumen"
 APP_USER_MODEL_ID = "lumen.downloader"  # identidad en la barra de tareas y en los avisos (igual en installer.iss)
 DATA = Path(os.environ.get("APPDATA") or Path.home()) / "Lumen"
@@ -1508,6 +1508,65 @@ def forward_to_running(url):
         return False
 
 
+# ---------- extensión del navegador ----------
+# Chrome, Edge y Brave no dejan que un programa les instale extensiones que no
+# vienen de su tienda, así que Lumen abre la página de extensiones y guía los
+# tres clics. Firefox sí acepta un archivo firmado por Mozilla: se abre con él y
+# solo pregunta «¿Agregar Lumen?».
+
+APP_DIR = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
+FIREFOX_XPI = APP_DIR / "extension-firefox.xpi"
+
+
+def extension_folder():
+    folder = APP_DIR / "extension"
+    return os.path.normpath(folder) if (folder / "manifest.json").is_file() else None
+
+
+def find_browsers():
+    """Navegadores instalados: {id: (nombre, exe, página de extensiones)}."""
+    env = lambda k: Path(os.environ.get(k) or "C:\\__no__")
+    pf, pf86, local = env("ProgramFiles"), env("ProgramFiles(x86)"), env("LOCALAPPDATA")
+    known = {
+        "chrome": ("Chrome", [d / "Google/Chrome/Application/chrome.exe" for d in (pf, pf86, local)], "chrome://extensions"),
+        "edge": ("Edge", [d / "Microsoft/Edge/Application/msedge.exe" for d in (pf86, pf, local)], "edge://extensions"),
+        "brave": ("Brave", [d / "BraveSoftware/Brave-Browser/Application/brave.exe" for d in (pf, pf86, local)], "brave://extensions"),
+        "firefox": ("Firefox", [d / "Mozilla Firefox/firefox.exe" for d in (pf, pf86, local)], None),
+    }
+    found = {}
+    for bid, (name, paths, page) in known.items():
+        exe = next((p for p in paths if p.is_file()), None)
+        if exe:
+            found[bid] = (name, str(exe), page)
+    return found
+
+
+def extension_status():
+    seen = read_json(DATA / "extension.json", {})  # lo escribe la extensión al arrancar (native_host «hello»)
+    browsers = [{"id": bid, "name": name, "connected": bool(seen.get(name))}
+                for bid, (name, _exe, _page) in find_browsers().items()]
+    return {"browsers": browsers, "folder": extension_folder(), "firefox": FIREFOX_XPI.is_file()}
+
+
+def install_extension(browser):
+    browsers = find_browsers()
+    if browser not in browsers:
+        raise ValueError("No se encontró ese navegador.")
+    _name, exe, page = browsers[browser]
+    if browser == "firefox":
+        if not FIREFOX_XPI.is_file():
+            raise ValueError("La versión para Firefox todavía no está disponible.")
+        subprocess.Popen([exe, str(FIREFOX_XPI)])  # Firefox pregunta «¿Agregar Lumen?»
+        return {"ok": True}
+    folder = extension_folder()
+    if not folder:
+        raise ValueError("No se encontró la carpeta de la extensión.")
+    # El navegador no acepta abrir su página de extensiones desde fuera (abre una
+    # pestaña nueva): la página copia esa dirección para pegarla en la barra.
+    subprocess.Popen([exe])
+    return {"ok": True, "folder": folder, "page": page}
+
+
 # ---------- bandeja del sistema ----------
 # Al cerrar la ventana con descargas en curso, Lumen sigue en la bandeja.
 
@@ -1793,6 +1852,8 @@ class Handler(BaseHTTPRequestHandler):
                                    "frozen": getattr(sys, "frozen", False), "lang": ui_lang(),
                                    "app_version": APP_VERSION, "ytdlp_updated": YTDLP_UPDATED,
                                    "installed": INSTALLED})
+        if path == "/api/extension":
+            return self.send_json(extension_status())
         if path == "/api/jobs":
             ui["last_seen"] = time.time()
             with jobs_lock:
@@ -1909,12 +1970,13 @@ class Handler(BaseHTTPRequestHandler):
                 reveal(path if path and os.path.exists(path) else job.get("folder") or data.get("folder"))
             return {"ok": True}
         if p == "/api/extension-folder":
-            # Va junto a Lumen.exe; en el código fuente, junto a app.py
-            folder = (Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent) / "extension"
-            if not (folder / "manifest.json").is_file():
+            folder = extension_folder()
+            if not folder:
                 raise ValueError("No se encontró la carpeta de la extensión.")
-            subprocess.Popen(f'explorer /select,"{os.path.normpath(folder)}"')  # la carpeta, marcada
+            subprocess.Popen(f'explorer /select,"{folder}"')  # la carpeta, marcada
             return {"ok": True}
+        if p == "/api/install-extension":
+            return install_extension(data.get("browser"))
         if p == "/api/pick-folder":
             folder = pick_folder(data.get("folder") or settings["folder"])
             if folder:

@@ -65,8 +65,17 @@ def main():
     for name in ("LICENSE", "THIRD-PARTY-NOTICES.md"):
         shutil.copy(ROOT / name, out / name)
     shutil.copy(ROOT / "tools" / "LEEME.txt", out / "LEEME.txt")
-    # Extensión del navegador: se instala desde Ajustes → «Mostrar la carpeta»
-    shutil.copytree(ROOT / "extension", out / "extension", dirs_exist_ok=True)
+    # Extensión del navegador (se instala desde Ajustes): la carpeta para Chrome,
+    # Edge y Brave, y la versión firmada para Firefox si ya la firmó Mozilla
+    sys.path.insert(0, str(ROOT / "tools"))
+    import build_extension
+    firefox_xpi = build_extension.main()
+    shutil.copytree(ROOT / "extension", out / "extension", dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns("updates.json"))
+    if firefox_xpi:
+        shutil.copy(firefox_xpi, out / "extension-firefox.xpi")
+    else:
+        print("AVISO: sin la versión firmada para Firefox; Lumen no ofrecerá «Instalar en Firefox».")
 
     if SIGNING:  # antes de comprimir, para que el .zip también lleve el .exe firmado
         sign(out / "Lumen.exe")

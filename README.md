@@ -45,11 +45,14 @@ and in up-to-date Windows 10).
 - **Several links at once**: paste a block of text with links and they’re queued.
 - **Flexible queue**: pause, resume (it continues where it left off) and reorder
   downloads.
-- **Extension for Chrome, Edge and Brave**: a “Download” button under YouTube
-  videos shows each quality with its size and hands the download to Lumen with
-  your preferences, without leaving the browser. On any other site, the toolbar
-  button does the same. Install it from **Settings → Show folder** (it ships with
-  Lumen). There’s also a bookmark that sends the page you’re watching to Lumen.
+- **Extension for Chrome, Edge, Brave and Firefox**: a “Download” button under
+  YouTube videos shows each quality with its size and hands the download to
+  Lumen with your preferences, without leaving the browser. On any other site,
+  the toolbar button does the same. Install it from **Settings → Browser
+  extension**: in Firefox you just click “Add”; in Chrome, Edge and Brave Lumen
+  walks you through three steps (those browsers don’t let a program install
+  extensions from outside their store). There’s also a bookmark that sends the
+  page you’re watching to Lumen.
 - **Keeps working in the system tray** if you close the window while downloading.
 - **Always up to date**: yt-dlp updates itself in the background, and the
   installed version of Lumen updates itself with one click (the download is
@@ -112,6 +115,13 @@ To sign `Lumen.exe`, the installer and the uninstaller, set
 `LUMEN_SIGN_THUMBPRINT` (a code signing certificate in your user store) or
 `LUMEN_SIGN_PFX` and `LUMEN_SIGN_PASSWORD` before building; see
 [`tools/sign.ps1`](tools/sign.ps1).
+
+The extension lives in [`extension/`](extension). `tools/build.py` also builds
+the Firefox version (`python tools/build_extension.py`): Firefox only installs
+extensions signed by Mozilla, so with addons.mozilla.org API keys in
+`WEB_EXT_API_KEY` and `WEB_EXT_API_SECRET` it signs it automatically (as
+“unlisted”); without them it leaves `dist/lumen-firefox.zip` to sign by hand and
+save the result as `dist/lumen-firefox.xpi`.
 
 Translations live in [`web/i18n.js`](web/i18n.js): the Spanish text is the key
 and each language has its own dictionary. `python tools/check_i18n.py` lists

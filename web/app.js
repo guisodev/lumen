@@ -1557,7 +1557,74 @@ $('#entries').addEventListener('click', (e) => {
 
 /* ---------- descargar desde el navegador ---------- */
 
-$('#extFolder').addEventListener('click', () => api('/api/extension-folder', {}).catch((e) => toast(e.message, 'error')));
+/* ---------- extensión del navegador ---------- */
+
+const extState = { browsers: [], waiting: null, timer: null };
+
+async function refreshExtension() {
+  try {
+    const st = await api('/api/extension');
+    extState.browsers = st.browsers;
+    extState.firefox = st.firefox;
+    renderExtension();
+    // Mientras se instala, preguntamos hasta que la extensión salude a Lumen
+    const w = extState.waiting && st.browsers.find((b) => b.id === extState.waiting);
+    if (w?.connected) {
+      extState.waiting = null;
+      showExtSteps(`<p class="ext-ok">✓ ${esc(t('Listo: la extensión está conectada en {b}.', { b: w.name }))}</p>`);
+    }
+  } catch { /* sin servidor: se reintenta al abrir Ajustes */ }
+  clearTimeout(extState.timer);
+  if (extState.waiting && $('#settings').open) extState.timer = setTimeout(refreshExtension, 2500);
+}
+
+function renderExtension() {
+  const list = extState.browsers.filter((b) => b.id !== 'firefox' || extState.firefox);
+  $('#extBrowsers').innerHTML = list.length
+    ? list.map((b) => b.connected
+      ? `<span class="ext-done">✓ ${esc(t('Instalada en {b}', { b: b.name }))}</span>`
+      : `<button type="button" class="btn small ghost" data-ext="${b.id}">${esc(t('Instalar en {b}', { b: b.name }))}</button>`).join('')
+    : `<small>${esc(t('No encontré navegadores compatibles. Puedes instalarla a mano desde la carpeta.'))}</small>`;
+}
+
+function showExtSteps(html) {
+  const box = $('#extSteps');
+  box.innerHTML = html;
+  box.classList.remove('hidden');
+}
+
+$('#extBrowsers').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-ext]');
+  if (!btn) return;
+  const b = extState.browsers.find((x) => x.id === btn.dataset.ext);
+  try {
+    const r = await api('/api/install-extension', { browser: b.id });
+    if (b.id === 'firefox') {
+      showExtSteps(`<p>${esc(t('Firefox te va a preguntar si quieres agregar Lumen: pulsa «Agregar».'))}</p>`);
+    } else {
+      let copied = true;
+      try { await navigator.clipboard.writeText(r.page); } catch { copied = false; }
+      const row = (text, id) => `<div class="inline bookmarklet"><code>${esc(text)}</code><button type="button" class="btn small ghost" data-copy="${id}">${esc(t('Copiar'))}</button></div>`;
+      showExtSteps(`<p>${esc(t('Se abrió {b}. Copié la dirección de su página de extensiones.', { b: b.name }))}</p>
+        <ol><li>${esc(t('Pega la dirección en la barra con Ctrl+V y pulsa Enter.'))}${row(r.page, 'page')}</li>
+        <li>${esc(t('Activa el «Modo de desarrollador».'))}</li>
+        <li>${esc(t(b.id === 'edge' ? 'Pulsa «Cargar desempaquetada».' : 'Pulsa «Cargar descomprimida».'))}</li>
+        <li>${esc(t('Elige esta carpeta: cópiala y pégala con Ctrl+V en la ventana que se abre.'))}${row(r.folder, 'folder')}</li></ol>`);
+      $$('#extSteps [data-copy]').forEach((el) => el.addEventListener('click', () =>
+        navigator.clipboard.writeText(el.dataset.copy === 'page' ? r.page : r.folder).then(() => toast(t('Copiado'))).catch(() => {})));
+      if (!copied) toast(t('Selecciónalo y cópialo con Ctrl+C'));
+    }
+    extState.waiting = b.id;
+    refreshExtension();
+  } catch (err) {
+    toast(err.message, true);
+  }
+});
+
+$('#extFolder').addEventListener('click', (e) => {
+  e.preventDefault();
+  api('/api/extension-folder', {}).catch((err) => toast(err.message, true));
+});
 
 const BOOKMARKLET = "javascript:location.href='lumen://open?url='+encodeURIComponent(location.href)";
 $('#bmCopy').addEventListener('click', async () => {
@@ -1622,6 +1689,7 @@ function templateHint() {
 function openSettings() {
   const d = $('#settings');
   d.showModal();
+  refreshExtension();
   initSegs(d);
   if (!reduceMotion()) $$('.field', d).forEach((f, i) => animateIn(f, 40 + i * 30, 8));
 }

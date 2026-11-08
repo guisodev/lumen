@@ -100,11 +100,16 @@
   `;
 
   function send(msg) {
+    // Firefox (browser.*) devuelve una promesa; Chrome y Edge (chrome.*) usan una función de respuesta
+    const fail = (e) => ({ ok: false, error: String(e?.message || e || 'sin respuesta') });
+    if (globalThis.browser?.runtime?.sendMessage) {
+      return globalThis.browser.runtime.sendMessage({ lumen: msg }).then((r) => r || fail(), fail);
+    }
     return new Promise((resolve) => {
       try {
-        api.runtime.sendMessage({ lumen: msg }, (r) => resolve(r || { ok: false, error: api.runtime.lastError?.message || 'sin respuesta' }));
+        chrome.runtime.sendMessage({ lumen: msg }, (r) => resolve(r || fail(chrome.runtime.lastError?.message)));
       } catch (e) {
-        resolve({ ok: false, error: String(e?.message || e) }); // la extensión se actualizó: hay que recargar la página
+        resolve(fail(e)); // la extensión se actualizó: hay que recargar la página
       }
     });
   }

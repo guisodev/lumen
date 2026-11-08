@@ -46,12 +46,14 @@ con los Windows 10 actualizados).
 - **Listas de reproducción**: marcas qué videos quieres.
 - **Varios enlaces a la vez**: pega un texto con varios y se ponen en cola.
 - **Cola flexible**: pausa, reanuda (sigue donde se quedó) y reordena descargas.
-- **Extensión para Chrome, Edge y Brave**: un botón «Descargar» debajo de los
-  videos de YouTube muestra las calidades con su tamaño y le pasa la descarga a
-  Lumen con tus preferencias, sin salir del navegador. En cualquier otro sitio,
-  el botón de la barra hace lo mismo. Se instala desde **Ajustes → Mostrar la
-  carpeta** (Lumen la trae incluida). También hay un marcador que manda a Lumen
-  la página que estás viendo.
+- **Extensión para Chrome, Edge, Brave y Firefox**: un botón «Descargar» debajo
+  de los videos de YouTube muestra las calidades con su tamaño y le pasa la
+  descarga a Lumen con tus preferencias, sin salir del navegador. En cualquier
+  otro sitio, el botón de la barra hace lo mismo. Se instala desde **Ajustes →
+  Extensión del navegador**: en Firefox basta con pulsar «Agregar»; en Chrome,
+  Edge y Brave Lumen te guía en tres pasos (esos navegadores no dejan que un
+  programa les instale extensiones de fuera de su tienda). También hay un
+  marcador que manda a Lumen la página que estás viendo.
 - **Sigue en la bandeja del sistema** si cierras la ventana con descargas en curso.
 - **Siempre al día**: yt-dlp se actualiza solo en segundo plano, y la versión
   instalada de Lumen se actualiza con un clic (la descarga se comprueba con la
@@ -114,6 +116,13 @@ Para firmar `Lumen.exe`, el instalador y el desinstalador, define antes de
 compilar `LUMEN_SIGN_THUMBPRINT` (un certificado de firma de código en tu
 almacén de usuario) o `LUMEN_SIGN_PFX` y `LUMEN_SIGN_PASSWORD`; mira
 [`tools/sign.ps1`](tools/sign.ps1).
+
+La extensión está en [`extension/`](extension). `tools/build.py` prepara
+también la versión para Firefox (`python tools/build_extension.py`): Firefox
+solo instala extensiones firmadas por Mozilla, así que con las claves de API de
+addons.mozilla.org en `WEB_EXT_API_KEY` y `WEB_EXT_API_SECRET` la firma sola
+(como «no listada»); sin ellas, deja `dist/lumen-firefox.zip` para firmarlo a
+mano y guardar el resultado como `dist/lumen-firefox.xpi`.
 
 Las traducciones están en [`web/i18n.js`](web/i18n.js): el texto en español es
 la clave y cada idioma tiene su diccionario. `python tools/check_i18n.py` dice

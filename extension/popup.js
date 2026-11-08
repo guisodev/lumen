@@ -1,7 +1,8 @@
 // Botón de la barra del navegador: el mismo menú, para la pestaña que estás viendo.
 const api = globalThis.browser ?? globalThis.chrome;
 
-api.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+// tabs.query devuelve una promesa tanto en Firefox como en Chrome/Edge (Manifest V3)
+api.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
   let url = tab?.url || '';
   // En YouTube, sin la lista ni el minuto, igual que el botón de la página
   try {
