@@ -3,8 +3,8 @@
     "lumen@guisodev.github.io": {
       "updates": [
         {
-          "version": "1.5.0.1",
-          "update_link": "https://github.com/guisodev/lumen/releases/download/v1.5.0/lumen-firefox.xpi"
+          "version": "1.6.0",
+          "update_link": "https://github.com/guisodev/lumen/releases/download/v1.6.0/lumen-firefox.xpi"
         }
       ]
     }

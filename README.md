@@ -3,7 +3,7 @@
 **English** · [Español](README.es.md)
 
 **Download video and music from over 1,000 sites with a polished desktop app.**
-Lumen is a Windows app built on [yt-dlp](https://github.com/yt-dlp/yt-dlp):
+Lumen is a desktop app for Windows, macOS and Linux built on [yt-dlp](https://github.com/yt-dlp/yt-dlp):
 paste a link, pick a quality and you’re done — no command line needed.
 
 ![Lumen with a video analyzed: the background takes on the video’s colors](docs/en-2-video.png)
@@ -15,6 +15,10 @@ Go to [**Releases**](../../releases/latest) and download either:
 - **`Lumen-Setup.exe`** (recommended): installs Lumen for your user, with a
   Start menu entry and an uninstaller. No administrator rights needed.
 - **`Lumen.zip`** (portable): unzip it anywhere and open `Lumen\Lumen.exe`.
+- **`Lumen-macOS.zip`** (Apple Silicon, experimental): unzip it and drag
+  `Lumen.app` to Applications.
+- **`Lumen-Linux.tar.gz`** (x64, experimental): extract it and run
+  `Lumen/Lumen`. On Linux Lumen opens in your browser.
 
 Nothing else to install: ffmpeg and deno are bundled, and Lumen keeps yt-dlp
 up to date by itself.
@@ -22,9 +26,14 @@ up to date by itself.
 > **First run:** Windows may show “Windows protected your PC” because the app
 > isn’t digitally signed. Click **More info → Run anyway**. You can check that
 > the file is the original with its SHA-256 hash, listed on each release page.
+>
+> **macOS:** the app isn’t notarized by Apple yet, so macOS blocks it the first
+> time. Open it once, then go to **System Settings → Privacy & Security** and
+> click **Open Anyway**.
 
 **Requirements:** 64-bit Windows 10 or 11 with WebView2 (included in Windows 11
-and in up-to-date Windows 10).
+and in up-to-date Windows 10), macOS 11 or later on Apple Silicon, or a 64-bit
+Linux with glibc 2.35 or later (Ubuntu 22.04, Debian 12, Fedora 36 and newer).
 
 ## Features
 
@@ -34,6 +43,8 @@ and in up-to-date Windows 10).
 - **Downloads start instantly**: Lumen reuses the analysis it already did
   instead of asking the site again.
 - **Subtitles in the language you choose**, from those the video has.
+- **Compress to share**: make a lighter copy of a downloaded video that fits in
+  10, 25, 50 or 100 MB (Discord, email…), right from the downloads list.
 - **Scheduled downloads**: pick a time (for example, overnight) and the download
   waits in the list, even if you close Lumen.
 - **Search without leaving the app**: type words instead of a link and pick a
@@ -79,38 +90,35 @@ versions by itself (**Settings → Check for updates** forces it); the new versi
 is used the next time you open Lumen.
 
 **Where are settings and history stored?**
-In `%APPDATA%\Lumen`. Deleting that folder resets Lumen.
+In `%APPDATA%\Lumen` (Windows), `~/Library/Application Support/Lumen` (macOS) or`n`~/.config/Lumen` (Linux). Deleting that folder resets Lumen.
 
 ## Building from source
 
-You need Python 3.12 or later on Windows.
+You need Python 3.12 or later on Windows, macOS or Linux.
 
 ```bash
 python -m pip install -U "yt-dlp[curl-cffi]" yt-dlp-ejs mutagen pywebview pystray pillow pyinstaller
 ```
 
-To try it without building: `python app.py` (or double-click `Abrir Lumen.bat`).
+(On Linux leave out `pywebview`: Lumen opens in the browser there.)
 
-To build `Lumen.exe`, first place the bundled tools in `vendor/` (they aren’t in
-the repository because of their size):
+To try it without building: `python app.py` (or double-click `Abrir Lumen.bat` on Windows).
 
-- `vendor/ffmpeg/`: the contents of the `bin` folder of
-  `ffmpeg-master-latest-win64-gpl-shared.zip` from
-  [yt-dlp/FFmpeg-Builds](https://github.com/yt-dlp/FFmpeg-Builds/releases), without `ffplay.exe`.
-- `vendor/deno/deno.exe`: from `deno-x86_64-pc-windows-msvc.zip` from
-  [denoland/deno](https://github.com/denoland/deno/releases).
-
-Then:
+To build it for the system you’re on:
 
 ```bash
+python tools/fetch_vendor.py
 python tools/collect_licenses.py
 python tools/build.py
 ```
 
-The result is in `dist/Lumen/`, zipped as `dist/Lumen.zip`, and, if
-[Inno Setup 6](https://jrsoftware.org/isinfo.php) is installed, as the installer
-`dist/Lumen-Setup.exe`.
-
+`fetch_vendor.py` downloads that system’s ffmpeg and deno into `vendor/` (they
+aren’t in the repository because of their size) and checks their SHA-256. The
+result goes to `dist/`: on Windows `Lumen.zip` and, if
+[Inno Setup 6](https://jrsoftware.org/isinfo.php) is installed, the installer
+`Lumen-Setup.exe`; on macOS `Lumen-macOS.zip`; on Linux `Lumen-Linux.tar.gz`.
+GitHub Actions builds and tests all three on every release
+([`.github/workflows/build.yml`](.github/workflows/build.yml)).
 To sign `Lumen.exe`, the installer and the uninstaller, set
 `LUMEN_SIGN_THUMBPRINT` (a code signing certificate in your user store) or
 `LUMEN_SIGN_PFX` and `LUMEN_SIGN_PASSWORD` before building; see

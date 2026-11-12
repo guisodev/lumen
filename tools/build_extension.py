@@ -106,8 +106,16 @@ def main():
     source, zip_path = firefox_package(manifest)
     print(f"Extensión {ext_version}: {zip_path}")
     xpi = DIST / "lumen-firefox.xpi"
+    # La firmada se guarda en el repositorio: así GitHub Actions (sin las claves de
+    # Mozilla) también la incluye en Lumen
+    committed = ROOT / "packaging" / "firefox" / "lumen-firefox.xpi"
+    if signed_version(xpi) != ext_version and signed_version(committed) == ext_version:
+        shutil.copy(committed, xpi)
     if signed_version(xpi) != ext_version:
         xpi = sign(source)
+    if xpi and signed_version(xpi) == ext_version and signed_version(committed) != ext_version:
+        committed.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(xpi, committed)
     if xpi and signed_version(xpi) == ext_version:
         print(f"Firefox firmada: {xpi}")
     return xpi if xpi and signed_version(xpi) == ext_version else None

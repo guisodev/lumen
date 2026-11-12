@@ -42,7 +42,7 @@ for _stream in ("stdout", "stderr"):
         setattr(sys, _stream, open(os.devnull, "w", encoding="utf-8"))
 
 APP_NAME = "Lumen"
-APP_VERSION = "1.5.0"
+APP_VERSION = "1.6.0"
 GITHUB_REPO = "guisodev/lumen"
 APP_USER_MODEL_ID = "lumen.downloader"  # identidad en la barra de tareas y en los avisos (igual en installer.iss)
 DATA = plat.data_dir()  # %APPDATA%\Lumen, ~/Library/Application Support/Lumen o ~/.config/Lumen
