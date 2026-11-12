@@ -26,6 +26,7 @@ const ICONS = {
   stop: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
   retry: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>',
   trash: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>',
+  compress: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/></svg>',
   play: '<svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
   sun: '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
   moon: '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',
@@ -1316,6 +1317,7 @@ function subText(j) {
   const bits = [];
   if (j.kind === 'playlist') bits.push(t('Lista · {n} videos', { n: j.count }) + (j.item && ACTIVE.includes(j.status) ? ' · ' + t('video {i}', { i: j.item }) + (j.item_title ? ': ' + esc(j.item_title) : '') : ''));
   else if (j.item && ACTIVE.includes(j.status)) bits.push(t('Video {i}', { i: j.item }));
+  if (j.compress) bits.push(t('Para compartir · {mb} MB', { mb: j.compress }));
   if (j.section) bits.push(`<span class="cut">✂ ${fmtTime(j.section[0])}–${fmtTime(j.section[1])}</span>`);
   return bits.join(' · ');
 }
@@ -1326,9 +1328,12 @@ function jobActions(j, pos) {
   if (j.status === 'queued') return btn('up', 'up', 'Subir en la cola', pos.first) + btn('down', 'down', 'Bajar en la cola', pos.last) + btn('pause', 'pause', 'Pausar') + cancel;
   if (j.status === 'paused') return btn('resume', 'resume', 'Reanudar') + cancel;
   if (j.status === 'scheduled') return btn('now', 'now', 'Empezar ahora') + cancel;
+  if (j.compress && ACTIVE.includes(j.status)) return cancel;
   if (j.status === 'starting' || j.status === 'downloading') return btn('pause', 'pause', 'Pausar') + cancel;
   if (ACTIVE.includes(j.status)) return cancel;
-  return (j.status !== 'done' ? `<button class="icon-btn" data-a="retry" title="${t('Reintentar')}">${ICONS.retry}</button>` : '')
+  const canCompress = j.status === 'done' && j.exists && !j.compress && j.mode !== 'audio' && j.kind !== 'playlist' && /\.(mp4|mkv|webm|mov|m4v)$/i.test(j.filepath || '');
+  return (j.status !== 'done' && !j.compress ? `<button class="icon-btn" data-a="retry" title="${t('Reintentar')}">${ICONS.retry}</button>` : '')
+    + (canCompress ? btn('compress', 'compress', 'Comprimir para compartir') : '')
     + `<button class="icon-btn" data-a="reveal" title="${t('Mostrar en la carpeta')}">${ICONS.folder}</button>`
     + `<button class="icon-btn" data-a="remove" title="${t('Quitar del historial')}">${ICONS.trash}</button>`;
 }
@@ -1341,6 +1346,7 @@ async function jobAction(j, a) {
     if (a === 'now') await api('/api/now', { id: j.id });
     if (a === 'up' || a === 'down') await api('/api/move', { id: j.id, dir: a });
     if (a === 'reveal') await api('/api/reveal', { id: j.id });
+    if (a === 'compress') return compressMenu(j);
     if (a === 'remove') {
       const el = nodes.get(j.id);
       await Promise.all([collapse(el), api('/api/remove', { id: j.id })]);
@@ -1355,6 +1361,43 @@ async function jobAction(j, a) {
     }
   } catch (e) { toast(e.message, true); }
   poll();
+}
+
+/* ---------- comprimir para compartir ---------- */
+
+const COMPRESS_SIZES = [[10, 'Discord'], [25, 'correo'], [50, ''], [100, '']];
+
+function closeCompressMenu() { $('#compressMenu')?.remove(); }
+
+function compressMenu(j) {
+  closeCompressMenu();
+  const anchor = nodes.get(j.id)?.querySelector('[data-a="compress"]');
+  if (!anchor) return;
+  const menu = document.createElement('div');
+  menu.id = 'compressMenu';
+  menu.className = 'compress-menu';
+  menu.innerHTML = `<div class="cm-title">${esc(t('Comprimir para compartir'))}</div>
+    <small>${esc(t('Hace una copia más liviana junto al original.'))}</small>`
+    + COMPRESS_SIZES.filter(([mb]) => !j.total || mb * 1048576 < j.total).map(([mb, note]) =>
+      `<button type="button" data-mb="${mb}"><b>${mb} MB</b>${note ? `<span>${esc(t(note))}</span>` : ''}</button>`).join('')
+    + (j.total && j.total <= 10 * 1048576 ? `<small>${esc(t('Ese video ya pesa menos que eso.'))}</small>` : '');
+  document.body.append(menu);
+  const r = anchor.getBoundingClientRect();
+  const below = r.bottom + 6 + menu.offsetHeight <= innerHeight - 8; // si no entra abajo, se abre hacia arriba
+  menu.style.top = `${(below ? r.bottom + 6 : Math.max(8, r.top - 6 - menu.offsetHeight)) + scrollY}px`;
+  menu.style.left = `${Math.max(8, r.right - menu.offsetWidth) + scrollX}px`;
+  menu.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-mb]');
+    if (!b) return;
+    closeCompressMenu();
+    try {
+      await api('/api/compress', { id: j.id, mb: +b.dataset.mb });
+      poll();
+    } catch (err) { toast(err.message, true); }
+  });
+  setTimeout(() => document.addEventListener('click', function off(e) {
+    if (!e.target.closest('#compressMenu')) { closeCompressMenu(); document.removeEventListener('click', off); }
+  }), 0);
 }
 
 let firstRender = true;

@@ -1,49 +1,64 @@
-"""Compila Lumen.exe con PyInstaller, incluyendo ffmpeg y deno.
+"""Compila Lumen con PyInstaller, incluyendo ffmpeg y deno, para el sistema en
+el que se ejecuta (Windows, macOS o Linux).
 
 Uso:  python tools/build.py
 
 Necesita (una sola vez):
-  python -m pip install -U pyinstaller "yt-dlp[curl-cffi]" yt-dlp-ejs mutagen pywebview pystray pillow
-  vendor/ffmpeg/   ffmpeg.exe, ffprobe.exe y sus .dll
-                   (ffmpeg-master-latest-win64-gpl-shared.zip de github.com/yt-dlp/FFmpeg-Builds)
-  vendor/deno/     deno.exe (deno-x86_64-pc-windows-msvc.zip de github.com/denoland/deno)
+  python -m pip install -U pyinstaller "yt-dlp[curl-cffi]" yt-dlp-ejs mutagen pystray pillow
+  y pywebview en Windows y macOS (en Linux Lumen se abre en el navegador)
+  vendor/ffmpeg/ y vendor/deno/ con los programas de ese sistema: python tools/fetch_vendor.py
 
 Resultado:
-  dist/Lumen/Lumen.exe   el programa (con la carpeta _internal al lado)
-  dist/Lumen.zip         lo mismo comprimido, para compartir
-  dist/Lumen-Setup.exe   instalador (si Inno Setup 6 está instalado: winget install JRSoftware.InnoSetup)
+  Windows  dist/Lumen/Lumen.exe, dist/Lumen.zip y dist/Lumen-Setup.exe (si está Inno Setup 6)
+  macOS    dist/Lumen.app y dist/Lumen-macOS.zip (sin firmar: la primera vez, clic derecho → Abrir)
+  Linux    dist/Lumen/Lumen y dist/Lumen-Linux.tar.gz
 """
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tarfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 VENDOR = ROOT / "vendor"
 DIST = ROOT / "dist"
+IS_WIN, IS_MAC = os.name == "nt", sys.platform == "darwin"
+EXE = ".exe" if IS_WIN else ""
+SEP = os.pathsep  # separador de --add-data: «;» en Windows, «:» en el resto
 
 
 def main():
-    missing = [p for p in (VENDOR / "ffmpeg" / "ffmpeg.exe", VENDOR / "ffmpeg" / "ffprobe.exe",
-                           VENDOR / "deno" / "deno.exe", ROOT / "licenses" / "python" / "TABLA.md",
+    missing = [p for p in (VENDOR / "ffmpeg" / f"ffmpeg{EXE}", VENDOR / "ffmpeg" / f"ffprobe{EXE}",
+                           VENDOR / "deno" / f"deno{EXE}", ROOT / "licenses" / "python" / "TABLA.md",
                            ROOT / "LICENSE") if not p.is_file()]
     if missing:
-        sys.exit("Faltan archivos en vendor/ (mira el principio de este script):\n  "
+        sys.exit("Faltan archivos (python tools/fetch_vendor.py y python tools/collect_licenses.py):\n  "
                  + "\n  ".join(str(p.relative_to(ROOT)) for p in missing))
+
+    # Extensión del navegador: la carpeta para Chrome, Edge y Brave, y la versión
+    # firmada para Firefox si ya la firmó Mozilla (ver tools/build_extension.py)
+    sys.path.insert(0, str(ROOT / "tools"))
+    import build_extension
+    firefox_xpi = build_extension.main()
+    stage = ROOT / "build" / "extras"  # lo que va junto al programa
+    shutil.rmtree(stage, ignore_errors=True)
+    shutil.copytree(ROOT / "extension", stage / "extension", ignore=shutil.ignore_patterns("updates.json"))
+    if firefox_xpi:
+        shutil.copy(firefox_xpi, stage / "extension-firefox.xpi")
+    else:
+        print("AVISO: sin la versión firmada para Firefox; Lumen no ofrecerá «Instalar en Firefox».")
 
     import PyInstaller.__main__
 
-    sep = ";"  # separador de --add-data en Windows
-    PyInstaller.__main__.run([
+    args = [
         str(ROOT / "app.py"),
         "--name", "Lumen",
         "--noconfirm", "--clean",
-        "--windowed",            # sin ventana de consola
-        "--onedir",              # arranca rápido: --onefile tendría que descomprimir ~300 MB en cada inicio
-        "--icon", str(ROOT / "web" / "icon.ico"),
-        "--add-data", f"{ROOT / 'web'}{sep}web",
+        "--windowed",            # sin ventana de consola (en macOS, una app Lumen.app)
+        "--onedir",              # arranca rápido: --onefile descomprimiría ~300 MB en cada inicio
+        "--add-data", f"{ROOT / 'web'}{SEP}web",
         "--collect-all", "yt_dlp_ejs",  # scripts que yt-dlp ejecuta con deno
         "--collect-all", "curl_cffi",   # se hace pasar por un navegador (TikTok y otros lo exigen)
         "--collect-all", "mutagen",     # portadas en .m4a y .opus
@@ -51,31 +66,47 @@ def main():
         "--distpath", str(DIST),
         "--workpath", str(ROOT / "build"),
         "--specpath", str(ROOT / "build"),
-    ])
+    ]
+    if IS_WIN:
+        args += ["--icon", str(ROOT / "web" / "icon.ico")]
+    else:
+        args += ["--icon", str(ROOT / "web" / "icon.png")]  # PyInstaller lo convierte con Pillow
+        # ffmpeg y deno son ejecutables estáticos: dentro del paquete (en macOS así
+        # quedan firmados con la app). Y el resto de lo que va junto al programa.
+        for tool, names in (("ffmpeg", ("ffmpeg", "ffprobe")), ("deno", ("deno",))):
+            for name in names:
+                args += ["--add-binary", f"{VENDOR / tool / name}{SEP}{tool}"]
+        if IS_MAC:
+            args += ["--osx-bundle-identifier", "com.guisodev.lumen"]
+            for item in ("licenses", "LICENSE", "THIRD-PARTY-NOTICES.md"):
+                args += ["--add-data", f"{ROOT / item}{SEP}{item if (ROOT / item).is_dir() else '.'}"]
+            args += ["--add-data", f"{stage / 'extension'}{SEP}extension"]
+            if firefox_xpi:
+                args += ["--add-data", f"{stage / 'extension-firefox.xpi'}{SEP}."]
+        if not IS_MAC:  # Linux: sin ventana propia, se abre en el navegador
+            args += ["--exclude-module", "webview"]
+    PyInstaller.__main__.run(args)
 
-    # ffmpeg y deno se copian tal cual después: si se pasan a PyInstaller, este
-    # analiza sus .dll y las duplica en la raíz (~190 MB de más).
-    internal = DIST / "Lumen" / "_internal"
-    for tool in ("ffmpeg", "deno"):
-        shutil.copytree(VENDOR / tool, internal / tool, dirs_exist_ok=True)
+    if IS_MAC:
+        finish_mac()
+        return
 
-    # Licencias y avisos de terceros junto a Lumen.exe (la GPL de FFmpeg lo exige)
     out = DIST / "Lumen"
+    if IS_WIN:
+        # ffmpeg y deno se copian tal cual después: si se pasan a PyInstaller, este
+        # analiza sus .dll y las duplica en la raíz (~190 MB de más).
+        for tool in ("ffmpeg", "deno"):
+            shutil.copytree(VENDOR / tool, out / "_internal" / tool, dirs_exist_ok=True)
+    # Licencias y avisos de terceros junto al programa (la GPL de FFmpeg lo exige)
     shutil.copytree(ROOT / "licenses", out / "licenses", dirs_exist_ok=True)
     for name in ("LICENSE", "THIRD-PARTY-NOTICES.md"):
         shutil.copy(ROOT / name, out / name)
     shutil.copy(ROOT / "tools" / "LEEME.txt", out / "LEEME.txt")
-    # Extensión del navegador (se instala desde Ajustes): la carpeta para Chrome,
-    # Edge y Brave, y la versión firmada para Firefox si ya la firmó Mozilla
-    sys.path.insert(0, str(ROOT / "tools"))
-    import build_extension
-    firefox_xpi = build_extension.main()
-    shutil.copytree(ROOT / "extension", out / "extension", dirs_exist_ok=True,
-                    ignore=shutil.ignore_patterns("updates.json"))
-    if firefox_xpi:
-        shutil.copy(firefox_xpi, out / "extension-firefox.xpi")
-    else:
-        print("AVISO: sin la versión firmada para Firefox; Lumen no ofrecerá «Instalar en Firefox».")
+    shutil.copytree(stage, out, dirs_exist_ok=True)
+
+    if not IS_WIN:
+        finish_linux(out)
+        return
 
     if SIGNING:  # antes de comprimir, para que el .zip también lleve el .exe firmado
         sign(out / "Lumen.exe")
@@ -88,9 +119,26 @@ def main():
     build_installer()
 
 
+def finish_mac():
+    """Firma ad hoc (sin certificado: macOS la exige en Apple Silicon) y comprime la app."""
+    app = DIST / "Lumen.app"
+    subprocess.run(["codesign", "--force", "--deep", "--sign", "-", str(app)], check=True)
+    archive = DIST / "Lumen-macOS.zip"
+    archive.unlink(missing_ok=True)
+    subprocess.run(["ditto", "-c", "-k", "--keepParent", str(app), str(archive)], check=True)  # conserva enlaces y firmas
+    print(f"Listo: {app}\n       {archive} ({archive.stat().st_size / 2**20:.0f} MB)")
+
+
+def finish_linux(out):
+    archive = DIST / "Lumen-Linux.tar.gz"
+    with tarfile.open(archive, "w:gz") as tar:
+        tar.add(out, arcname="Lumen")
+    print(f"Listo: {out / 'Lumen'}\n       {archive} ({archive.stat().st_size / 2**20:.0f} MB)")
+
+
 # Firma de código (opcional): con LUMEN_SIGN_THUMBPRINT o LUMEN_SIGN_PFX definidos,
 # se firman Lumen.exe, el instalador y el desinstalador (ver tools/sign.ps1).
-SIGNING = bool(os.environ.get("LUMEN_SIGN_THUMBPRINT") or os.environ.get("LUMEN_SIGN_PFX"))
+SIGNING = IS_WIN and bool(os.environ.get("LUMEN_SIGN_THUMBPRINT") or os.environ.get("LUMEN_SIGN_PFX"))
 SIGN_CMD = f'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{ROOT / "tools" / "sign.ps1"}"'
 
 

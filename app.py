@@ -27,6 +27,7 @@ import urllib.request
 from urllib.parse import parse_qs, urlparse
 
 import native_host
+import platform_utils as plat
 
 # Si lo abrió la extensión del navegador, Lumen.exe solo hace de puente con el
 # Lumen abierto y termina; va antes de cargar yt-dlp para responder al instante.
@@ -44,7 +45,7 @@ APP_NAME = "Lumen"
 APP_VERSION = "1.5.0"
 GITHUB_REPO = "guisodev/lumen"
 APP_USER_MODEL_ID = "lumen.downloader"  # identidad en la barra de tareas y en los avisos (igual en installer.iss)
-DATA = Path(os.environ.get("APPDATA") or Path.home()) / "Lumen"
+DATA = plat.data_dir()  # %APPDATA%\Lumen, ~/Library/Application Support/Lumen o ~/.config/Lumen
 YTDLP_DIR = DATA / "ytdlp"  # yt-dlp actualizado desde la app (ver update_ytdlp)
 
 
@@ -102,10 +103,10 @@ HISTORY_LIMIT = 300
 # ffmpeg y deno incluidos: dentro del .exe están junto al programa; al
 # ejecutar app.py, en vendor/ (los deja ahí tools/build.py).
 for _base in (ROOT, ROOT / "vendor"):
-    if (_base / "ffmpeg" / "ffmpeg.exe").is_file():
+    if (_base / "ffmpeg" / f"ffmpeg{plat.EXE}").is_file():
         os.environ["PATH"] = str(_base / "ffmpeg") + os.pathsep + os.environ.get("PATH", "")
         break
-DENO = next((p for p in (ROOT / "deno" / "deno.exe", ROOT / "vendor" / "deno" / "deno.exe") if p.is_file()), None)
+DENO = next((p for p in (ROOT / "deno" / f"deno{plat.EXE}", ROOT / "vendor" / "deno" / f"deno{plat.EXE}") if p.is_file()), None)
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 URL_RE = re.compile(r"https?://[^\s<>\"']+")
@@ -231,6 +232,9 @@ def ui_lang():
     """El idioma elegido en Ajustes o, en automático, el de Windows (inglés si no lo tenemos)."""
     if settings.get("lang") in LANGS:
         return settings["lang"]
+    if not plat.IS_WIN:
+        code = plat.system_lang()
+        return code if code in LANGS else "en"
     try:
         primary = ctypes.windll.kernel32.GetUserDefaultUILanguage() & 0x3FF
         return WIN_LANGS.get(primary, "en")
@@ -988,8 +992,136 @@ def finish_job(job):
     if job["status"] in ("done", "error") and settings["notify"] and not ui["focused"]:
         ok = job["status"] == "done"
         title = tr(job["title"])
+        if job.get("compress"):
+            notify(tr("Video comprimido") if ok else tr("No se pudo comprimir"),
+                   title if ok else f'{title}\n{tr(job.get("error", ""))}')
+            return
         notify(tr("Descarga terminada") if ok else tr("La descarga falló"),
                title if ok else f'{title}\n{tr(job.get("error", ""))}')
+
+
+# ---------- comprimir para compartir ----------
+# Deja un video descargado por debajo de un tamaño (Discord, correo…). Calcula la
+# tasa de bits que entra en ese tamaño según la duración, baja la resolución si
+# hace falta para que se vea nítido y codifica en dos pasadas para clavar el tamaño.
+
+COMPRESS_SIZES = (10, 25, 50, 100)  # MB
+VIDEO_EXTS = (".mp4", ".mkv", ".webm", ".mov", ".m4v")
+_NO_WINDOW = 0x08000000 if os.name == "nt" else 0  # CREATE_NO_WINDOW: sin consola de ffmpeg
+
+
+def probe_video(path):
+    """Duración (s), alto (px) y si tiene audio, con ffprobe."""
+    out = subprocess.run(["ffprobe", "-v", "error", "-print_format", "json", "-show_format", "-show_streams", path],
+                         capture_output=True, creationflags=_NO_WINDOW, check=True).stdout
+    info = json.loads(out)
+    video = next((s for s in info["streams"] if s.get("codec_type") == "video"), None)
+    if not video:
+        raise ValueError("Ese archivo no tiene video.")
+    duration = float(info["format"].get("duration") or video.get("duration") or 0)
+    if duration <= 0:
+        raise ValueError("No se pudo leer la duración del video.")
+    height = min(int(video.get("height") or 1080), int(video.get("width") or 1920))  # lado corto
+    return duration, height, any(s.get("codec_type") == "audio" for s in info["streams"])
+
+
+def compress_plan(duration, height, has_audio, mb, margin=0.95):
+    """Tasas de bits (kbit/s) y alto de salida para que el archivo quede por debajo de `mb`."""
+    total = mb * 8 * 1024 * 1024 / 1000 * margin / duration  # kbit/s que caben
+    audio = (128 if total >= 2000 else 96 if total >= 600 else 64) if has_audio else 0
+    video = total - audio
+    if video < 80:
+        raise ValueError("El video es demasiado largo para ese tamaño: elige uno más grande.")
+    # la resolución que se ve bien con esa tasa (más píxeles con pocos bits se ve peor)
+    target = next(h for kbps, h in ((4500, 1080), (2200, 720), (1000, 480), (550, 360), (0, 240)) if video >= kbps)
+    return int(video), audio, min(height, target)
+
+
+def start_compress(source, mb):
+    if mb not in COMPRESS_SIZES:
+        raise ValueError("Tamaño no válido.")
+    src = source.get("filepath") or ""
+    if not os.path.isfile(src) or not src.lower().endswith(VIDEO_EXTS):
+        raise ValueError("El archivo ya no existe; puede que lo hayas movido o borrado.")
+    if os.path.getsize(src) <= mb * 1024 * 1024:
+        raise ValueError("Ese video ya pesa menos que eso.")
+    job = {
+        "id": uuid.uuid4().hex[:10], "url": source.get("url"), "title": source.get("title") or os.path.basename(src),
+        "thumbnail": source.get("thumbnail"), "kind": "video", "items": [], "section": None, "count": 1,
+        "options": {"mode": "video"}, "compress": mb, "source": src,
+        "status": "queued", "stage": "En cola", "progress": 0, "speed": None, "eta": None, "total": None,
+        "downloaded": 0, "cancel": False, "created": time.time(), "folder": os.path.dirname(src), "order": next(_order),
+    }
+    with jobs_lock:
+        jobs[job["id"]] = job
+    threading.Thread(target=run_compress, args=(job,), daemon=True).start()
+    return job
+
+
+def _encode(job, args, duration, start, span):
+    """Una pasada de ffmpeg con su avance (de `start` a `start + span` por ciento)."""
+    proc = subprocess.Popen(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-progress", "pipe:1", "-nostats", *args],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=_NO_WINDOW, text=True)
+    job["_proc"] = proc
+    for line in proc.stdout:
+        if job["cancel"]:
+            proc.kill()
+            break
+        if line.startswith("out_time_us="):
+            try:
+                done = int(line.split("=", 1)[1]) / 1e6
+            except ValueError:
+                continue
+            job["progress"] = round(start + span * min(1, done / duration), 1)
+    err = proc.stderr.read()
+    proc.wait()
+    if proc.returncode and not job["cancel"]:
+        raise RuntimeError(err.strip().splitlines()[-1] if err.strip() else "ffmpeg falló")
+
+
+def run_compress(job):
+    src, mb = job["source"], job["compress"]
+    stem = os.path.splitext(os.path.basename(src))[0]
+    out = os.path.join(job["folder"], f"{stem} ({mb} MB).mp4")
+    n = 2
+    while os.path.exists(out):
+        out = os.path.join(job["folder"], f"{stem} ({mb} MB) ({n}).mp4")
+        n += 1
+    tmpdir = tempfile.mkdtemp(prefix="lumen-compress-")
+    passlog = os.path.join(tmpdir, "pass")
+    try:
+        job.update(status="downloading", stage="Comprimiendo")
+        duration, height, has_audio = probe_video(src)
+        for margin in (0.95, 0.88):  # si se pasa (pasa poco), segundo intento más ajustado
+            vk, ak, h = compress_plan(duration, height, has_audio, mb, margin)
+            scale = ["-vf", f"scale=-2:{h}"] if h < height else []
+            common = ["-i", src, *scale, "-c:v", "libx264", "-preset", "medium", "-b:v", f"{vk}k",
+                      "-maxrate", f"{int(vk * 1.5)}k", "-bufsize", f"{vk * 2}k", "-pix_fmt", "yuv420p",
+                      "-passlogfile", passlog]
+            _encode(job, [*common, "-pass:v", "1", "-an", "-f", "null", os.devnull], duration, 0, 45)
+            if job["cancel"]:
+                break
+            audio = ["-c:a", "aac", "-b:a", f"{ak}k"] if has_audio else ["-an"]
+            _encode(job, [*common, "-pass:v", "2", *audio, "-movflags", "+faststart", out], duration, 45, 55)
+            if job["cancel"] or os.path.getsize(out) <= mb * 1024 * 1024:
+                break
+        if job["cancel"]:
+            job["status"] = "cancelled"
+            if os.path.exists(out):
+                os.remove(out)
+        else:
+            job.update(status="done", progress=100, stage="Listo", filepath=out, total=os.path.getsize(out))
+    except Exception as e:
+        job.update(status="error", error=friendly(clean(e)) if not isinstance(e, ValueError) else str(e), raw_error=clean(e))
+        if os.path.exists(out):
+            try:
+                os.remove(out)
+            except OSError:
+                pass
+    finally:
+        job.pop("_proc", None)
+        shutil.rmtree(tmpdir, ignore_errors=True)
+        finish_job(job)
 
 
 def wait_schedule(job):
@@ -1075,6 +1207,9 @@ def keep_awake(on):
     """Mientras haya descargas en marcha, Windows no suspende el equipo (la
     pantalla sí puede apagarse). Cuenta cuántas hay y suelta al terminar la última."""
     if os.name != "nt":
+        with _awake_lock:
+            _awake["n"] += 1 if on else -1
+            _inhibitor.set(_awake["n"] > 0)
         return
     with _awake_lock:
         _awake["n"] += 1 if on else -1
@@ -1084,6 +1219,7 @@ def keep_awake(on):
 
 
 _awake_requests = queue.Queue()
+_inhibitor = plat.Inhibitor()  # macOS y Linux
 
 
 def _awake_worker():
@@ -1140,6 +1276,8 @@ def resume_job(job):
 
 def cancel_job(job):
     job["cancel"] = True
+    if job.get("_proc"):  # compresión en curso: se corta ffmpeg ya
+        job["_proc"].kill()
     if job["status"] == "paused":  # no hay hilo en marcha: se cierra aquí
         job.update(status="cancelled", stage="Cancelado")
         finish_job(job)
@@ -1215,7 +1353,7 @@ def push_incoming(url):
 
 PUBLIC = ("id", "url", "title", "thumbnail", "kind", "count", "section", "status", "stage", "progress",
           "speed", "eta", "total", "downloaded", "created", "finished", "folder", "filepath",
-          "item", "item_title", "error", "raw_error", "start_at")
+          "item", "item_title", "error", "raw_error", "start_at", "compress")
 
 
 def public(job):
@@ -1251,6 +1389,10 @@ def pick_folder(initial):
         dialog = getattr(getattr(webview, "FileDialog", None), "FOLDER", None) or webview.FOLDER_DIALOG
         result = WINDOW.create_file_dialog(dialog, directory=initial)
         return result[0] if result else ""
+    if plat.IS_LINUX:
+        folder = plat.pick_folder_linux(initial, tr("Elegir carpeta de descargas"))
+        if folder is not None:
+            return folder
     code = ("import sys, tkinter as tk; from tkinter import filedialog;"
             "r = tk.Tk(); r.withdraw(); r.attributes('-topmost', True);"
             "print(filedialog.askdirectory(initialdir=sys.argv[1], title='Elegir carpeta de descargas') or '')")
@@ -1260,15 +1402,13 @@ def pick_folder(initial):
 
 
 def reveal(path):
-    if path and os.path.isfile(path):
-        subprocess.Popen(f'explorer /select,"{os.path.normpath(path)}"')
-    elif path and os.path.isdir(path):
-        os.startfile(path)
+    if path and os.path.exists(path):
+        plat.reveal(path)
 
 
 def read_clipboard():
     if os.name != "nt":
-        return ""
+        return plat.clipboard_unix()
     u32, k32 = ctypes.windll.user32, ctypes.windll.kernel32
     u32.GetClipboardData.restype = ctypes.c_void_p
     k32.GlobalLock.restype = ctypes.c_void_p
@@ -1302,6 +1442,7 @@ $t = $x.GetElementsByTagName('text')
 
 def notify(title, body):
     if os.name != "nt":
+        plat.notify_unix(title, body)
         return
     # Windows solo muestra el aviso con el nombre e icono de Lumen si hay un acceso
     # en el menú Inicio con su identidad (lo crea el instalador); si no, sale a
@@ -1323,7 +1464,9 @@ TITLEBAR = {
 
 
 def windows_dark_mode():
-    """True si Windows usa el modo oscuro para las aplicaciones."""
+    """True si el sistema usa el modo oscuro para las aplicaciones."""
+    if not plat.IS_WIN:
+        return plat.dark_mode_unix()
     try:
         import winreg
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
@@ -1408,6 +1551,10 @@ def show_window(dark=None):
     set_window_icon()  # para la barra de tareas y Alt+Tab
     clean_titlebar()
     style_titlebar(dark)
+    if START_IN_TRAY and plat.IS_MAC:
+        WINDOW.show()
+        WINDOW.minimize()  # macOS: sin bandeja, queda en el Dock sin tapar el navegador
+        return
     if START_IN_TRAY:
         # La abrió la extensión del navegador: trabaja desde la bandeja sin
         # quitarte la ventana del navegador. «Abrir Lumen» en la bandeja la muestra.
@@ -1460,8 +1607,13 @@ INSTANCE_FILE = DATA / "instance.json"
 
 def register_protocol():
     """Registra lumen:// para el usuario actual (sin permisos de administrador)."""
-    if os.name != "nt" or not getattr(sys, "frozen", False):
+    if not getattr(sys, "frozen", False):
         return
+    if plat.IS_LINUX:
+        plat.register_url_scheme_linux(sys.executable)
+        return
+    if os.name != "nt":
+        return  # macOS: el enlace lumen:// lo declara Lumen.app (Info.plist)
     import winreg
     exe = sys.executable
     base = r"Software\Classes\lumen"
@@ -1515,16 +1667,20 @@ def forward_to_running(url):
 # solo pregunta «¿Agregar Lumen?».
 
 APP_DIR = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
-FIREFOX_XPI = APP_DIR / "extension-firefox.xpi"
+# En macOS van dentro de Lumen.app (ROOT); en Windows y Linux, junto al ejecutable.
+FIREFOX_XPI = next((d / "extension-firefox.xpi" for d in (APP_DIR, ROOT) if (d / "extension-firefox.xpi").is_file()),
+                   APP_DIR / "extension-firefox.xpi")
 
 
 def extension_folder():
-    folder = APP_DIR / "extension"
-    return os.path.normpath(folder) if (folder / "manifest.json").is_file() else None
+    folder = next((d / "extension" for d in (APP_DIR, ROOT) if (d / "extension" / "manifest.json").is_file()), None)
+    return os.path.normpath(folder) if folder else None
 
 
 def find_browsers():
-    """Navegadores instalados: {id: (nombre, exe, página de extensiones)}."""
+    """Navegadores instalados: {id: (nombre, orden para abrirlo, página de extensiones)}."""
+    if not plat.IS_WIN:
+        return plat.find_browsers_unix()
     env = lambda k: Path(os.environ.get(k) or "C:\\__no__")
     pf, pf86, local = env("ProgramFiles"), env("ProgramFiles(x86)"), env("LOCALAPPDATA")
     known = {
@@ -1537,7 +1693,7 @@ def find_browsers():
     for bid, (name, paths, page) in known.items():
         exe = next((p for p in paths if p.is_file()), None)
         if exe:
-            found[bid] = (name, str(exe), page)
+            found[bid] = (name, [str(exe)], page)
     return found
 
 
@@ -1552,18 +1708,18 @@ def install_extension(browser):
     browsers = find_browsers()
     if browser not in browsers:
         raise ValueError("No se encontró ese navegador.")
-    _name, exe, page = browsers[browser]
+    _name, cmd, page = browsers[browser]
     if browser == "firefox":
         if not FIREFOX_XPI.is_file():
             raise ValueError("La versión para Firefox todavía no está disponible.")
-        subprocess.Popen([exe, str(FIREFOX_XPI)])  # Firefox pregunta «¿Agregar Lumen?»
+        subprocess.Popen([*cmd, str(FIREFOX_XPI)])  # Firefox pregunta «¿Agregar Lumen?»
         return {"ok": True}
     folder = extension_folder()
     if not folder:
         raise ValueError("No se encontró la carpeta de la extensión.")
     # El navegador no acepta abrir su página de extensiones desde fuera (abre una
     # pestaña nueva): la página copia esa dirección para pegarla en la barra.
-    subprocess.Popen([exe])
+    subprocess.Popen(cmd)
     return {"ok": True, "folder": folder, "page": page}
 
 
@@ -1594,6 +1750,11 @@ def ensure_tray():
 def on_closing():
     """Devuelve False para que la ventana no se cierre y siga en la bandeja."""
     busy = any(j["status"] in ACTIVE and j["status"] != "paused" for j in list(jobs.values()))
+    if busy and plat.IS_MAC and not tray["quitting"]:
+        # En macOS la bandeja (pystray) no convive con la ventana: se minimiza al Dock
+        WINDOW.minimize()
+        notify("Lumen", tr("Lumen sigue descargando en segundo plano. Lo encuentras en el Dock."))
+        return False
     if tray["quitting"] or not busy or not settings.get("tray", True):
         if tray["icon"]:
             tray["icon"].stop()
@@ -1946,6 +2107,11 @@ class Handler(BaseHTTPRequestHandler):
             if updates.get("lumen"):
                 webbrowser.open(updates["lumen"]["url"])
             return {"ok": True}
+        if p == "/api/compress":
+            source = jobs.get(data.get("id"))
+            if not source:
+                raise ValueError("No encontrado")
+            return public(start_compress(source, int(data.get("mb") or 0)))
         if p == "/api/remove":
             with jobs_lock:
                 job = jobs.get(data.get("id"))
@@ -1965,7 +2131,7 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/api/open":
                 if not path or not os.path.exists(path):
                     raise ValueError("El archivo ya no existe; puede que lo hayas movido o borrado.")
-                os.startfile(path)
+                plat.open_path(path)
             else:
                 reveal(path if path and os.path.exists(path) else job.get("folder") or data.get("folder"))
             return {"ok": True}
@@ -1973,7 +2139,7 @@ class Handler(BaseHTTPRequestHandler):
             folder = extension_folder()
             if not folder:
                 raise ValueError("No se encontró la carpeta de la extensión.")
-            subprocess.Popen(f'explorer /select,"{folder}"')  # la carpeta, marcada
+            plat.reveal(folder)  # la carpeta, marcada
             return {"ok": True}
         if p == "/api/install-extension":
             return install_extension(data.get("browser"))
@@ -2015,8 +2181,9 @@ def main():
     opened_with = url_from_args(sys.argv)
     if "--port" not in sys.argv and forward_to_running(opened_with):
         return  # ya había un Lumen abierto: se muestra y se encarga del enlace
-    register_protocol()
-    native_host.register()
+    if "--port" not in sys.argv:  # las copias de prueba no tocan el registro ni los navegadores
+        register_protocol()
+        native_host.register()
     load_history()
     if os.name == "nt":
         threading.Thread(target=_awake_worker, daemon=True).start()
@@ -2059,8 +2226,11 @@ def main():
             # por si la página no llega a avisar (error de carga), la mostramos igual
             WINDOW.events.loaded += lambda: threading.Timer(4, show_window).start()
             WINDOW.events.closing += on_closing
-            webview.start()
-            return
+            try:
+                webview.start()
+                return
+            except Exception:  # Linux sin GTK/Qt: se abre en el navegador como si no hubiera pywebview
+                WINDOW = None
 
     print(f"{APP_NAME} funcionando en {url}")
     if "--no-browser" not in sys.argv:

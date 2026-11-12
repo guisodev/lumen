@@ -18,11 +18,13 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+import platform_utils as plat
+
 HOST_NAME = "com.guisodev.lumen"
 CHROME_EXTENSION_ID = "nagpgnnalidioedgdfppeicicoakgdkg"  # fijo gracias a la "key" del manifest.json de la extensión
 FIREFOX_EXTENSION_ID = "lumen@guisodev.github.io"
 
-DATA = Path(os.environ.get("APPDATA") or Path.home()) / "Lumen"
+DATA = plat.data_dir()
 INSTANCE_FILE = DATA / "instance.json"
 EXTENSION_FILE = DATA / "extension.json"  # en qué navegadores está instalada la extensión
 OPTION_KEYS = ("mode", "quality", "audio_format", "meta", "subs", "folder", "chapters",
@@ -40,13 +42,25 @@ def is_invocation(argv):
 def register():
     """Deja el manifiesto del puente en %APPDATA%\\Lumen\\native y lo anota en el
     registro de Chrome, Edge, Brave y Firefox. Apunta al Lumen.exe actual, así
-    que también sirve para la versión portable."""
-    if os.name != "nt" or not getattr(sys, "frozen", False):
+    que también sirve para la versión portable. En macOS y Linux, el manifiesto
+    va directamente en la carpeta que lee cada navegador."""
+    if not getattr(sys, "frozen", False):
+        return
+    base = {"name": HOST_NAME, "description": "Lumen", "path": sys.executable, "type": "stdio"}
+    if not plat.IS_WIN:
+        chromium_dirs, firefox_dirs = plat.native_host_dirs()
+        for folder, extra in [(d, {"allowed_origins": [f"chrome-extension://{CHROME_EXTENSION_ID}/"]}) for d in chromium_dirs] + \
+                             [(d, {"allowed_extensions": [FIREFOX_EXTENSION_ID]}) for d in firefox_dirs]:
+            if folder.parent.is_dir() or folder.parent.name == ".mozilla":  # solo navegadores instalados
+                try:
+                    folder.mkdir(parents=True, exist_ok=True)
+                    _write(folder / f"{HOST_NAME}.json", base | extra)
+                except OSError:
+                    pass
         return
     import winreg
     folder = DATA / "native"
     folder.mkdir(parents=True, exist_ok=True)
-    base = {"name": HOST_NAME, "description": "Lumen", "path": sys.executable, "type": "stdio"}
     chromium = folder / f"{HOST_NAME}.json"
     firefox = folder / f"{HOST_NAME}.firefox.json"
     _write(chromium, base | {"allowed_origins": [f"chrome-extension://{CHROME_EXTENSION_ID}/"]})
@@ -145,14 +159,17 @@ def ensure_lumen(launch=True):
         cmd = [sys.executable, "--tray"]
     else:
         cmd = [sys.executable, str(Path(__file__).with_name("app.py")), "--tray"]
-    flags = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
     kwargs = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
-    try:
-        # Firefox y Chrome cierran los procesos hijos del puente al terminar: Lumen
-        # tiene que salir de ese grupo para seguir abierto.
-        subprocess.Popen(cmd, creationflags=flags | 0x01000000, **kwargs)  # CREATE_BREAKAWAY_FROM_JOB
-    except OSError:
-        subprocess.Popen(cmd, creationflags=flags, **kwargs)
+    if not plat.IS_WIN:
+        subprocess.Popen(cmd, start_new_session=True, **kwargs)  # fuera del grupo del navegador
+    else:
+        flags = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+        try:
+            # Firefox y Chrome cierran los procesos hijos del puente al terminar: Lumen
+            # tiene que salir de ese grupo para seguir abierto.
+            subprocess.Popen(cmd, creationflags=flags | 0x01000000, **kwargs)  # CREATE_BREAKAWAY_FROM_JOB
+        except OSError:
+            subprocess.Popen(cmd, creationflags=flags, **kwargs)
     deadline = time.time() + 40
     while time.time() < deadline:
         time.sleep(0.3)

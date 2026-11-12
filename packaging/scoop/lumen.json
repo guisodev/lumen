@@ -1,0 +1,31 @@
+{
+    "version": "1.5.0",
+    "description": "A polished desktop app for yt-dlp to download video and music from over 1,000 sites.",
+    "homepage": "https://github.com/guisodev/lumen",
+    "license": "MIT",
+    "notes": [
+        "Lumen needs the Microsoft Edge WebView2 Runtime (included in Windows 11 and up-to-date Windows 10).",
+        "Settings and history are stored in %APPDATA%\\Lumen. Update with 'scoop update lumen'."
+    ],
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/guisodev/lumen/releases/download/v1.5.0/Lumen.zip",
+            "hash": "69d3102a7c820765654e05b5c69a29fd96a57742f48e4097cfb77b853d68f8cb"
+        }
+    },
+    "extract_dir": "Lumen",
+    "shortcuts": [
+        [
+            "Lumen.exe",
+            "Lumen"
+        ]
+    ],
+    "checkver": "github",
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/guisodev/lumen/releases/download/v$version/Lumen.zip"
+            }
+        }
+    }
+}

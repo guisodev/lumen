@@ -20,6 +20,9 @@ PACKAGES = [
     "yt-dlp", "yt-dlp-ejs", "pywebview", "pythonnet", "clr_loader", "cffi", "pycparser",
     "bottle", "proxy_tools", "certifi", "packaging", "setuptools", "typing_extensions", "pyinstaller",
     "curl_cffi", "mutagen", "pystray", "six", "pillow",
+    # macOS (ventana con WebKit) y Linux (bandeja con X11): solo si están instalados
+    "pyobjc-core", "pyobjc-framework-Cocoa", "pyobjc-framework-WebKit", "pyobjc-framework-Quartz",
+    "pyobjc-framework-Security", "pyobjc-framework-UniformTypeIdentifiers", "python-xlib",
 ]
 LICENSE_WORDS = ("license", "licence", "copying", "notice", "authors")
 
@@ -29,12 +32,21 @@ def main():
     OUT.mkdir(parents=True)
     rows = []
 
-    python_license = Path(sys.base_prefix) / "LICENSE.txt"
-    shutil.copy(python_license, OUT / "python-LICENSE.txt")
+    # Windows: junto a python.exe; macOS y Linux: en lib/pythonX.Y
+    ver = f"python{sys.version_info.major}.{sys.version_info.minor}"
+    python_license = next((p for p in (Path(sys.base_prefix) / "LICENSE.txt", Path(sys.base_prefix) / "lib" / ver / "LICENSE.txt",
+                                       Path(sys.base_prefix) / "Resources" / "LICENSE.txt") if p.is_file()), None)
+    if python_license:
+        shutil.copy(python_license, OUT / "python-LICENSE.txt")
+    else:
+        print("aviso: no se encontró la licencia de Python")
     rows.append(("Python", sys.version.split()[0], "PSF (incluye OpenSSL, libffi, SQLite)"))
 
     for name in PACKAGES:
-        dist = metadata.distribution(name)
+        try:
+            dist = metadata.distribution(name)
+        except metadata.PackageNotFoundError:
+            continue  # no se usa en este sistema (p. ej. pythonnet fuera de Windows)
         meta = dist.metadata
         lic = meta.get("License-Expression") or meta.get("License") or ""
         if not lic or len(lic) > 60:  # algunos paquetes ponen aquí el texto entero
