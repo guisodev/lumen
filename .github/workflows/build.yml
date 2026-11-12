@@ -23,7 +23,7 @@ jobs:
             files: |
               dist/Lumen-Setup.exe
               dist/Lumen.zip
-          - os: macos-14
+          - os: macos-latest
             artifact: Lumen-macOS
             files: dist/Lumen-macOS.zip
           - os: ubuntu-22.04

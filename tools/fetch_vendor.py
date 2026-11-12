@@ -14,6 +14,7 @@ import hashlib
 import io
 import os
 import platform
+import re
 import shutil
 import stat
 import sys
@@ -87,7 +88,8 @@ def fetch_deno():
               ("aarch64" if ARM else "x86_64") + ("-apple-darwin" if IS_MAC else "-unknown-linux-gnu"))
     base = f"https://github.com/denoland/deno/releases/download/v{DENO_VERSION}/deno-{target}.zip"
     data = get(base)
-    expected = get(base + ".sha256sum").decode().split()[0]
+    # el formato cambia según el sistema (en Windows es una tabla de PowerShell): se busca el hash
+    expected = re.search(r"\b[0-9a-fA-F]{64}\b", get(base + ".sha256sum").decode())[0]
     check(data, expected, "deno")
     out = VENDOR / "deno"
     shutil.rmtree(out, ignore_errors=True)
