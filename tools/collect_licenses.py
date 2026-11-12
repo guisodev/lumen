@@ -54,7 +54,8 @@ def main():
                         if c.startswith("License ::")), lic[:60])
         copied = 0
         for f in dist.files or []:
-            if any(w in f.name.lower() for w in LICENSE_WORDS) and not f.name.endswith((".py", ".pyc")):
+            # solo textos: algunos módulos compilados se llaman, p. ej., _copying.cpython-313-darwin.so
+            if any(w in f.name.lower() for w in LICENSE_WORDS) and not f.name.endswith((".py", ".pyc", ".so", ".pyd", ".dylib", ".dll")):
                 src = Path(dist.locate_file(f))
                 if src.is_file():
                     shutil.copy(src, OUT / f"{name}-{f.name}")
